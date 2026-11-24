@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+
+  --surface-content-light: #ffffff;
+  --surface-content-dark: #1c1c1e;
+  --surface-elevated-light: #f5f5f7;
+  --surface-elevated-dark: #252528;
+  --surface-subtle-light: rgba(0, 0, 0, 0.04);
+  --surface-subtle-dark: rgba(255, 255, 255, 0.055);
+  --surface-hover-light: rgba(0, 0, 0, 0.055);
+  --surface-hover-dark: rgba(255, 255, 255, 0.075);
+
+  --text-primary-light: #1d1d1f;
+  --text-primary-dark: #f5f5f7;
+  --text-secondary-light: #5c5c63;
+  --text-secondary-dark: #a1a1a6;
+  --text-tertiary-light: #76767d;
+  --text-tertiary-dark: #86868b;
+
+  --hairline-light: rgba(0, 0, 0, 0.09);
+  --hairline-dark: rgba(255, 255, 255, 0.1);
+
+  --accent-light: #0066cc;
+  --accent-dark: #0a84ff;
+  --accent-text-light: #ffffff;
+  --accent-text-dark: #ffffff;
+
+  --status-green-light: #1b8a3f;
+  --status-green-dark: #32d74b;
+  --status-amber-light: #b25e00;
+  --status-amber-dark: #ff9f0a;
+  --status-red-light: #c92a2a;
+  --status-red-dark: #ff453a;
+
+  /* Fallback assignments before light-dark() override */
+  --bg-content: var(--surface-content-light);
+  --bg-elevated: var(--surface-elevated-light);
+  --bg-subtle: var(--surface-subtle-light);
+  --bg-hover: var(--surface-hover-light);
+  --text-primary: var(--text-primary-light);
+  --text-secondary: var(--text-secondary-light);
+  --text-tertiary: var(--text-tertiary-light);
+  --hairline: var(--hairline-light);
+  --accent: var(--accent-light);
+  --accent-text: var(--accent-text-light);
+  --status-green: var(--status-green-light);
+  --status-amber: var(--status-amber-light);
+  --status-red: var(--status-red-light);
+
+  @media (prefers-color-scheme: dark) {
+    --bg-content: var(--surface-content-dark);
+    --bg-elevated: var(--surface-elevated-dark);
+    --bg-subtle: var(--surface-subtle-dark);
+    --bg-hover: var(--surface-hover-dark);
+    --text-primary: var(--text-primary-dark);
+    --text-secondary: var(--text-secondary-dark);
+    --text-tertiary: var(--text-tertiary-dark);
+    --hairline: var(--hairline-dark);
+    --accent: var(--accent-dark);
+    --accent-text: var(--accent-text-dark);
+    --status-green: var(--status-green-dark);
+    --status-amber: var(--status-amber-dark);
+    --status-red: var(--status-red-dark);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --bg-content: light-dark(var(--surface-content-light), var(--surface-content-dark));
+    --bg-elevated: light-dark(var(--surface-elevated-light), var(--surface-elevated-dark));
+    --bg-subtle: light-dark(var(--surface-subtle-light), var(--surface-subtle-dark));
+    --bg-hover: light-dark(var(--surface-hover-light), var(--surface-hover-dark));
+    --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
+    --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
+    --text-tertiary: light-dark(var(--text-tertiary-light), var(--text-tertiary-dark));
+    --hairline: light-dark(var(--hairline-light), var(--hairline-dark));
+    --accent: light-dark(var(--accent-light), var(--accent-dark));
+    --accent-text: light-dark(var(--accent-text-light), var(--accent-text-dark));
+    --status-green: light-dark(var(--status-green-light), var(--status-green-dark));
+    --status-amber: light-dark(var(--status-amber-light), var(--status-amber-dark));
+    --status-red: light-dark(var(--status-red-light), var(--status-red-dark));
+  }
+
+  accent-color: var(--accent);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+.selectable-text {
+  user-select: text;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text-primary);
+}
+
+input,
+textarea {
+  caret-color: var(--accent);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono-path {
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Instant accessible focus ring without transition lag */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Modal dialog scroll containment per modern-web-guidance */
+dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Increased contrast support */
+@media (prefers-contrast: more) {
+  :root {
+    --hairline-light: rgba(0, 0, 0, 0.25);
+    --hairline-dark: rgba(255, 255, 255, 0.28);
+    --text-secondary-light: #3d3d42;
+    --text-secondary-dark: #d1d1d6;
+  }
+}

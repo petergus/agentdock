@@ -1,0 +1,96 @@
+{
+  "version": 2,
+  "skills": {
+    "apple-design": {
+      "source": "dickwu/apple-design-skill",
+      "commit": "91e15664896f6f27e75dcf1414d1226cb95fa167",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "a585f7b4611708c57e2074d436b8dcaaebdd9a0b5ac143646eb39c6fcf686c68"
+    },
+    "calling-rust-from-tauri-frontend": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-calling-rust/SKILL.md",
+      "computedHash": "2b6c484fc2d42e4e08eb46d1391a873c223308f4a405e67093d70e3d43f44cd8"
+    },
+    "configuring-tauri-apps": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-configuration/SKILL.md",
+      "computedHash": "b8471a653b91b9e9ae925864b8903fa305bf53e6ecf5e024e09dc03b54576a61"
+    },
+    "configuring-tauri-capabilities": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-capabilities/SKILL.md",
+      "computedHash": "6cba53d596b43ed6600e72210e8931e4a9b65a87c0ccf8a8394522fe36703599"
+    },
+    "configuring-tauri-permissions": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-permissions/SKILL.md",
+      "computedHash": "b2d9c16d7ebf0d341e1b5ddab3a69d8f6fc32e903e00a53c44634432c1aead6b"
+    },
+    "customizing-tauri-windows": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-window-customization/SKILL.md",
+      "computedHash": "c1bd6c6e99006495c8b22d768c6acecb7b2c1b4dcfca14475d60ffa19def13d1"
+    },
+    "integrating-tauri-js-frontends": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-frontend-js/SKILL.md",
+      "computedHash": "b1118a7e6276c731363ba6ff855fd48471027bf560ca9b791091b1305bf33f61"
+    },
+    "macos-app-design": {
+      "source": "petekp/agent-skills",
+      "commit": "0f90f074fd018ffbd7fab9d96d65fee23d44295d",
+      "sourceType": "github",
+      "skillPath": "skills/macos-app-design/SKILL.md",
+      "computedHash": "a2fa7fad9056d1f5f2b8b76e48018d75637b1f455ffb7ae1a7d9bb5992afd993"
+    },
+    "managing-tauri-app-resources": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-app-resources/SKILL.md",
+      "computedHash": "b66bee14d213c5d6fba122f587c2aa9a737485359510c30c1e957fdaf3032822"
+    },
+    "rust-best-practices": {
+      "source": "morganlinton/BeautifulRust",
+      "commit": "b9718436d77ee7bcf17cdcb6aa27628feb95d97a",
+      "sourceType": "github",
+      "skillPath": "skills/rust-best-practices/SKILL.md",
+      "computedHash": "313bea7637531b7f6fe60798bed2108e49594914d4db44e303b7d2312868b3d1"
+    },
+    "rust-review": {
+      "source": "morganlinton/BeautifulRust",
+      "commit": "b9718436d77ee7bcf17cdcb6aa27628feb95d97a",
+      "sourceType": "github",
+      "skillPath": "skills/rust-review/SKILL.md",
+      "computedHash": "a12087e797445bac38dc7c0b3e7441cb515fe7decb31ed983fcf24008c0523c1"
+    },
+    "setting-up-tauri-projects": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-project-setup/SKILL.md",
+      "computedHash": "fcd5a6c4548f91a512abacc4d053653293885538bf312875822f47ac2a23c616"
+    },
+    "testing-tauri-apps": {
+      "source": "dchuk/claude-code-tauri-skills",
+      "commit": "855352dfbc2527f5a7e4ed307782d2a487bffd66",
+      "sourceType": "github",
+      "skillPath": "tauri/tauri-testing/SKILL.md",
+      "computedHash": "2c938e1db7ddf635c49addec223bf63deccd09c4f2ca8a277ea747a6c635c787"
+    }
+  }
+}
