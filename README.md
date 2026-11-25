@@ -8,17 +8,15 @@ Manage **Skills**, **MCP Servers**, **Rules**, **Plugins**, **Reusable Sets**, a
 [![Tauri v2](https://img.shields.io/badge/Tauri-v2-FFC131?logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<!-- Drop your main app screenshot at docs/images/app-screenshot.png -->
-![AgentDock Screenshot](docs/images/app-screenshot.png)
+![AgentDock Screenshot](images/app-screenshot.jpg)
 
 ---
 
 ## Before & After
 
-<!-- Drop your before/after images at docs/images/before.png and docs/images/after.png -->
 | Before | After |
 | :---: | :---: |
-| ![Before AgentDock](docs/images/before.png) | ![After AgentDock](docs/images/after.png) |
+| ![Before AgentDock](images/before%20agentdock%20in%20antigravity.jpg) | ![After AgentDock](images/after.jpg) |
 
 ---
 
