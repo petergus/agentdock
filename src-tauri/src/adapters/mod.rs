@@ -6,6 +6,7 @@ pub mod codex;
 
 use std::path::{Path, PathBuf};
 
+use crate::config::AgentRoots;
 use crate::models::{ActiveAgents, AgentKind};
 
 /// Path descriptor specifying whether a scanned location is primary or legacy.
@@ -39,16 +40,16 @@ pub trait AgentAdapter: Send + Sync {
     fn kind(&self) -> AgentKind;
 
     /// Global single-file rule files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`).
-    fn global_rule_files(&self, home: &Path) -> Vec<PathSpec>;
+    fn global_rule_files(&self, roots: &AgentRoots) -> Vec<PathSpec>;
 
     /// Global rule directories scanned non-recursively for `*.md` files.
-    fn global_rule_dirs(&self, home: &Path) -> Vec<PathSpec>;
+    fn global_rule_dirs(&self, roots: &AgentRoots) -> Vec<PathSpec>;
 
     /// Global skill parent directories holding `<skill-name>/SKILL.md`.
-    fn global_skill_dirs(&self, home: &Path) -> Vec<PathSpec>;
+    fn global_skill_dirs(&self, roots: &AgentRoots) -> Vec<PathSpec>;
 
     /// Global MCP configuration files (JSON or TOML).
-    fn global_mcp_configs(&self, home: &Path) -> Vec<PathSpec>;
+    fn global_mcp_configs(&self, roots: &AgentRoots) -> Vec<PathSpec>;
 
     /// Project-scoped single-file rule files relative to `project`.
     fn project_rule_files(&self, project: &Path) -> Vec<PathSpec>;

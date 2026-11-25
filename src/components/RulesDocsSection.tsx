@@ -74,7 +74,7 @@ export function RulesDocsSection({
         </div>
 
         {visibleRules.length === 0 ? (
-          <div className="rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-4 py-6 text-center text-[12.5px] text-[var(--text-secondary)]">
+          <div className="mac-group px-4 py-6 text-center text-[12.5px] text-[var(--text-secondary)]">
             <FileText
               className="mx-auto mb-1.5 h-4 w-4 text-[var(--text-tertiary)]"
               strokeWidth={1.6}
@@ -83,7 +83,7 @@ export function RulesDocsSection({
             No instruction or rule files discovered in this scope.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-content)]">
+          <div className="mac-group overflow-hidden">
             {visibleRules.map((rule, idx) => {
               const isBroken = rule.sourceLabel === 'Broken Symlink';
               const isInheritedGlobal =
@@ -94,6 +94,14 @@ export function RulesDocsSection({
                   : rule.activeInProject;
               const isBusy = Boolean(busyRuleIds[rule.id]);
               const triggerText = ruleTriggerLabel(rule.trigger);
+              const triggerHelp =
+                rule.trigger === 'alwaysOn'
+                  ? 'Loads 100% of this rule into every startup prompt.'
+                  : rule.trigger === 'modelDecision'
+                    ? 'Only the short description loads upfront; the full rule loads on demand.'
+                    : rule.trigger === 'glob'
+                      ? '0 tokens upfront — loads only when editing matching files.'
+                      : 'Invalid or missing YAML frontmatter trigger.';
               const agentsSummary = rule.activeAgents
                 .map(agentDisplayName)
                 .join(', ');
@@ -102,8 +110,8 @@ export function RulesDocsSection({
                 <div
                   key={rule.id}
                   className={[
-                    'flex min-h-[38px] items-center justify-between gap-3 px-3.5 py-1.5 hover:bg-[var(--bg-hover)]',
-                    idx > 0 ? 'border-t border-[var(--hairline)]' : '',
+                    'flex min-h-[38px] items-center justify-between gap-3 px-4 py-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)]',
+                    idx > 0 ? 'mac-row-divider' : '',
                     isBusy ? 'opacity-60' : '',
                   ].join(' ')}
                 >
@@ -116,9 +124,9 @@ export function RulesDocsSection({
                       <button
                         type="button"
                         onClick={() => onEditRuleTrigger(rule)}
-                        title="Change YAML frontmatter trigger mode"
+                        title={`${triggerHelp} Click to change trigger mode.`}
                         className={[
-                          'inline-flex h-6 shrink-0 items-center gap-1 rounded-[5px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2 text-[11.5px] font-medium hover:bg-[var(--bg-hover)]',
+                          'mac-btn inline-flex h-6 shrink-0 items-center gap-1 px-2 text-[11.5px] font-medium',
                           rule.trigger === 'invalid'
                             ? 'text-[var(--status-red)]'
                             : 'text-[var(--text-primary)]',
@@ -132,6 +140,7 @@ export function RulesDocsSection({
                       </button>
                     ) : (
                       <span
+                        title={triggerHelp}
                         className={[
                           'shrink-0 text-[12px]',
                           rule.trigger === 'invalid'
@@ -153,7 +162,7 @@ export function RulesDocsSection({
                     )}
 
                     <span className="shrink-0 text-[12px] text-[var(--text-tertiary)]">
-                      {rule.sourceLabel}
+                      {isBroken ? 'Broken Link' : rule.sourceLabel}
                     </span>
 
                     {agentsSummary && agentFilter === 'all' && (
@@ -195,11 +204,11 @@ export function RulesDocsSection({
                         type="button"
                         disabled={isBusy}
                         onClick={() => onUnlinkBrokenRule(rule)}
-                        title="Remove broken rule symlink"
+                        title="Remove dead rule shortcut (deletes only the broken link, never real files)"
                         className="inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[12px] font-medium text-[var(--status-red)] hover:bg-[var(--status-red)]/10 disabled:opacity-50"
                       >
                         <Unlink className="h-3 w-3" strokeWidth={1.75} />
-                        Unlink
+                        Remove Link
                       </button>
                     ) : isInheritedGlobal ? (
                       <span
@@ -252,7 +261,7 @@ export function RulesDocsSection({
             <button
               type="button"
               onClick={onOpenSupportDocsModal}
-              className="inline-flex h-7 items-center gap-1 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              className="mac-btn inline-flex h-7 items-center gap-1 px-2.5 text-[12px] font-medium"
             >
               <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
               Link Support Docs
@@ -260,7 +269,7 @@ export function RulesDocsSection({
           </div>
 
           {supportDocs.length === 0 ? (
-            <div className="rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-4 py-5 text-[12.5px] text-[var(--text-secondary)]">
+            <div className="mac-group px-4 py-5 text-[12.5px] text-[var(--text-secondary)]">
               <div className="flex items-center gap-2">
                 <Link2
                   className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]"
@@ -268,18 +277,18 @@ export function RulesDocsSection({
                   aria-hidden="true"
                 />
                 <span>
-                  No external support docs linked yet. Attach Obsidian notes or spec folders via zero-token pointers or local symlinks.
+                  No external support docs linked yet. Attach notes, specs, or reference folders via zero-token pointers or local symlinks.
                 </span>
               </div>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-content)]">
+            <div className="mac-group overflow-hidden">
               {supportDocs.map((doc, idx) => (
                 <div
                   key={`${doc.mode}:${doc.path}`}
                   className={[
-                    'flex min-h-[42px] items-center justify-between gap-3 px-3.5 py-1.5 hover:bg-[var(--bg-hover)]',
-                    idx > 0 ? 'border-t border-[var(--hairline)]' : '',
+                    'flex min-h-[42px] items-center justify-between gap-3 px-4 py-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)]',
+                    idx > 0 ? 'mac-row-divider' : '',
                   ].join(' ')}
                 >
                   <div className="min-w-0 flex-1">

@@ -14,6 +14,7 @@ import {
   skillSourceLabel,
 } from '@/lib/format';
 import { MacSwitch } from '@/components/ui/MacSwitch';
+import { MacSelect } from '@/components/ui/MacSelect';
 
 type SortMode = 'name' | 'tokens' | 'active';
 
@@ -111,7 +112,7 @@ export function SkillsSection({
         <div className="flex items-center gap-2">
           <div className="relative flex items-center">
             <Search
-              className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-[var(--text-tertiary)]"
+              className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-[var(--text-tertiary)]"
               strokeWidth={1.75}
               aria-hidden="true"
             />
@@ -121,29 +122,29 @@ export function SkillsSection({
               onChange={(e) => setFilterText(e.target.value)}
               placeholder="Filter skills…"
               aria-label="Filter skills"
-              className="h-7 w-44 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-subtle)] pl-7 pr-2.5 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
+              className="mac-input h-7 w-44 pl-8 pr-2.5 text-[12px]"
             />
           </div>
 
           <label className="sr-only" htmlFor="skills-sort">
             Sort skills
           </label>
-          <select
+          <MacSelect
             id="skills-sort"
+            size="sm"
             value={sortMode}
             onChange={(e) => setSortMode(e.target.value as SortMode)}
-            className="h-7 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-subtle)] px-2 text-[12px] text-[var(--text-primary)]"
           >
             <option value="active">Active First</option>
             <option value="name">Name (A–Z)</option>
             <option value="tokens">Highest Tokens</option>
-          </select>
+          </MacSelect>
         </div>
       </div>
 
       {/* Global De-bloat Banner */}
       {scopeType === 'global' && unmanagedGlobalSkillsCount > 0 && (
-        <div className="flex items-center justify-between gap-4 rounded-[8px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-3.5 py-2.5">
+        <div className="mac-group flex items-center justify-between gap-4 px-4 py-2.5">
           <div className="flex min-w-0 items-start gap-2.5">
             <AlertTriangle
               className="mt-0.5 h-4 w-4 shrink-0 text-[var(--status-amber)]"
@@ -152,26 +153,29 @@ export function SkillsSection({
             />
             <div className="text-[12.5px] leading-snug text-[var(--text-primary)]">
               <span className="font-medium">
-                {unmanagedGlobalSkillsCount} unmanaged global{' '}
-                {unmanagedGlobalSkillsCount === 1 ? 'skill folder' : 'skill folders'} detected
+                {unmanagedGlobalSkillsCount} loose global{' '}
+                {unmanagedGlobalSkillsCount === 1
+                  ? 'skill folder'
+                  : 'skill folders'}{' '}
+                can&rsquo;t be toggled off yet
               </span>{' '}
               <span className="text-[var(--text-secondary)]">
-                sitting directly inside agent directories instead of your Obsidian Library.
+                — saved directly inside agent folders instead of your Library, so they load in every session. Move them to your Library to keep them safe and toggleable.
               </span>
             </div>
           </div>
           <button
             type="button"
             onClick={() => onOpenDeBloat(unmanagedIds)}
-            className="h-7 shrink-0 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-3 text-[12px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            className="mac-btn h-7 shrink-0 px-3 text-[12px] font-medium"
           >
-            Move to Library & Unlink…
+            Consolidate to Library…
           </button>
         </div>
       )}
 
       {visibleSkills.length === 0 ? (
-        <div className="rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-4 py-6 text-center text-[12.5px] text-[var(--text-secondary)]">
+        <div className="mac-group px-4 py-6 text-center text-[12.5px] text-[var(--text-secondary)]">
           <Sparkles
             className="mx-auto mb-1.5 h-4 w-4 text-[var(--text-tertiary)]"
             strokeWidth={1.6}
@@ -180,7 +184,7 @@ export function SkillsSection({
           No skills match the active agent or search filter.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-content)]">
+        <div className="mac-group overflow-hidden">
           {visibleSkills.map((skill, idx) => {
             const isBroken = skill.source.kind === 'brokenSymlink';
             const isInheritedGlobal =
@@ -202,8 +206,8 @@ export function SkillsSection({
               <div
                 key={skill.id}
                 className={[
-                  'flex min-h-[38px] items-center justify-between gap-3 px-3.5 py-1.5 hover:bg-[var(--bg-hover)]',
-                  idx > 0 ? 'border-t border-[var(--hairline)]' : '',
+                  'flex min-h-[38px] items-center justify-between gap-3 px-4 py-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)]',
+                  idx > 0 ? 'mac-row-divider' : '',
                   isBusy ? 'opacity-60' : '',
                 ].join(' ')}
               >
@@ -231,9 +235,11 @@ export function SkillsSection({
                     ].join(' ')}
                     title={
                       skill.frontmatterError ??
-                      (skill.isUnmanagedGlobal
-                        ? 'Unmanaged real folder inside global agent directory'
-                        : undefined)
+                      (isBroken
+                        ? 'Dead shortcut pointing to a missing file or folder. Remove Link deletes only the shortcut.'
+                        : skill.isUnmanagedGlobal
+                          ? 'Real folder inside an agent directory instead of your Library. Move to Library so you can toggle it on or off safely.'
+                          : undefined)
                     }
                   >
                     {sourceText}
@@ -274,11 +280,11 @@ export function SkillsSection({
                       type="button"
                       disabled={isBusy}
                       onClick={() => onUnlinkBrokenSkill(skill)}
-                      title="Remove broken symlink"
+                      title="Remove dead shortcut (deletes only the broken link, never real files)"
                       className="inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[12px] font-medium text-[var(--status-red)] hover:bg-[var(--status-red)]/10 disabled:opacity-50"
                     >
                       <Unlink className="h-3 w-3" strokeWidth={1.75} />
-                      Unlink
+                      Remove Link
                     </button>
                   ) : isInheritedGlobal ? (
                     <span

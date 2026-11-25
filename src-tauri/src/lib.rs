@@ -2,18 +2,22 @@
 
 pub mod adapters;
 pub mod backup;
+pub mod cleanup;
 pub mod commands;
 pub mod config;
 pub mod debloat;
 pub mod error;
 pub mod frontmatter;
 pub mod git_hygiene;
+pub mod global_switch;
 pub mod mcp_catalog;
 pub mod mcp_probe;
 pub mod mcp_writer;
 pub mod models;
+pub mod plugins;
 pub mod rules_writer;
 pub mod scanner;
+pub mod sets;
 pub mod support_docs;
 pub mod symlinks;
 pub mod tokenizer;
@@ -53,6 +57,7 @@ pub fn run() {
                 "app-settings" => Some("menu://settings"),
                 "refresh-workspace" => Some("menu://refresh"),
                 "quick-filter" => Some("menu://search"),
+                "go-global" => Some("menu://global"),
                 _ => None,
             };
             if let Some(name) = payload_event {
@@ -64,6 +69,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
+            commands::toggle_pinned_project,
             commands::scan_workspace,
             commands::scan_project,
             commands::set_watched_project,
@@ -80,6 +86,23 @@ pub fn run() {
             commands::toggle_mcp_server,
             commands::add_mcp_server,
             commands::probe_mcp_server,
+            commands::set_global_switch,
+            commands::toggle_plugin,
+            commands::preview_project_set,
+            commands::toggle_project_set,
+            commands::upsert_set,
+            commands::delete_set,
+            commands::toggle_hidden_project,
+            commands::set_project_tags,
+            commands::upsert_tag_definition,
+            commands::delete_tag_definition,
+            commands::run_cleanup_audit,
+            commands::unlink_broken_symlinks_batch,
+            commands::prune_codex_plugin_caches,
+            commands::prune_stale_git_excludes,
+            commands::remove_claude_synced_bucket,
+            commands::preview_instruction_fix,
+            commands::apply_instruction_fix,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AgentDock Tauri application");
@@ -96,6 +119,9 @@ fn build_app_menu<R: tauri::Runtime>(
         .build(app)?;
     let filter_item = MenuItemBuilder::with_id("quick-filter", "Quick Filter")
         .accelerator("CmdOrCtrl+K")
+        .build(app)?;
+    let global_item = MenuItemBuilder::with_id("go-global", "Go to Global")
+        .accelerator("CmdOrCtrl+1")
         .build(app)?;
 
     #[cfg(target_os = "macos")]
@@ -130,6 +156,7 @@ fn build_app_menu<R: tauri::Runtime>(
         .build()?;
 
     let view_submenu = SubmenuBuilder::new(app, "View")
+        .item(&global_item)
         .item(&filter_item)
         .separator()
         .fullscreen()

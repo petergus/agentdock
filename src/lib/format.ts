@@ -4,8 +4,27 @@ import type {
   RuleTrigger,
   ScopeSnapshot,
   SkillItem,
+  TagColor,
   TokenBudgetBreakdown,
 } from '@/types';
+
+export const TAG_COLORS: Array<{
+  id: TagColor;
+  label: string;
+  hex: string;
+}> = [
+  { id: 'gray', label: 'Gray', hex: '#8e8e93' },
+  { id: 'blue', label: 'Blue', hex: '#007aff' },
+  { id: 'green', label: 'Green', hex: '#34c759' },
+  { id: 'orange', label: 'Orange', hex: '#ff9500' },
+  { id: 'red', label: 'Red', hex: '#ff3b30' },
+  { id: 'purple', label: 'Purple', hex: '#af52de' },
+  { id: 'yellow', label: 'Yellow', hex: '#ffcc00' },
+];
+
+export function tagColorHex(color: TagColor): string {
+  return TAG_COLORS.find((c) => c.id === color)?.hex ?? '#8e8e93';
+}
 
 export function formatTokensCompact(tokens: number): string {
   if (tokens >= 1000) {
@@ -17,6 +36,21 @@ export function formatTokensCompact(tokens: number): string {
 
 export function formatTokensExact(tokens: number): string {
   return tokens.toLocaleString('en-US');
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unitIdx = 0;
+  while (value >= 1024 && unitIdx < units.length - 1) {
+    value /= 1024;
+    unitIdx += 1;
+  }
+  const formatted = value >= 10 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/, '');
+  return `${formatted} ${units[unitIdx]}`;
 }
 
 export function agentDisplayName(agent: AgentKind): string {
@@ -48,11 +82,11 @@ export function skillSourceLabel(skill: SkillItem): string {
     case 'library':
       return skill.source.label;
     case 'globalOnly':
-      return 'Global Only';
+      return skill.isUnmanagedGlobal ? 'Loose in Global' : 'Global Only';
     case 'projectOnly':
-      return 'Project Only';
+      return 'Project Folder';
     case 'brokenSymlink':
-      return 'Broken Symlink';
+      return 'Broken Link';
   }
 }
 
@@ -104,6 +138,15 @@ export function computeFilteredBudget(
     }
   }
 
+  let pluginsGlobal = 0;
+  for (const plugin of snapshot.plugins) {
+    if (!plugin.enabled || plugin.agent !== filter) {
+      continue;
+    }
+    pluginsGlobal += plugin.upfrontTokens;
+    rulesGlobal += plugin.rulesUpfrontTokens;
+  }
+
   let mcpGlobal = 0;
   let mcpProject = 0;
   for (const mcp of snapshot.mcpServers) {
@@ -118,7 +161,7 @@ export function computeFilteredBudget(
   }
 
   const rulesTotal = rulesGlobal + rulesProject;
-  const skillsMcpGlobal = skillsGlobal + mcpGlobal;
+  const skillsMcpGlobal = skillsGlobal + pluginsGlobal + mcpGlobal;
   const skillsMcpProject = skillsProject + mcpProject;
   const skillsMcpTotal = skillsMcpGlobal + skillsMcpProject;
 
@@ -129,6 +172,7 @@ export function computeFilteredBudget(
     rulesLimit: snapshot.budget.rulesLimit,
     skillsGlobal,
     skillsProject,
+    pluginsGlobal,
     mcpGlobal,
     mcpProject,
     skillsMcpGlobal,

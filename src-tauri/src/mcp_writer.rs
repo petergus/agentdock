@@ -11,7 +11,7 @@ use crate::config;
 use crate::error::AppError;
 use crate::git_hygiene;
 use crate::mcp_catalog;
-use crate::models::{AppConfig, DesiredState, McpCatalogEntry, McpTransport, ToggleScope};
+use crate::models::{AgentKind, AppConfig, DesiredState, McpCatalogEntry, McpTransport, ToggleScope};
 
 /// Toggles an MCP server ON or OFF across enabled agents for Global or Project scope.
 ///
@@ -84,11 +84,12 @@ fn write_server_state(
     custom_backups_root: Option<&Path>,
 ) -> Result<(), AppError> {
     let is_enable = entry.is_some();
+    let roots = crate::config::resolve_agent_roots(cfg, home);
 
     match scope {
         ToggleScope::Global => {
             if cfg.active_agents.antigravity {
-                let primary = home.join(".gemini/config/mcp_config.json");
+                let primary = roots.antigravity_dir.join("config/mcp_config.json");
                 mutate_json_mcp_file(
                     &primary,
                     JsonTargetKind::McpServersRoot,
@@ -98,7 +99,7 @@ fn write_server_state(
                     custom_backups_root,
                 )?;
 
-                let legacy = home.join(".gemini/antigravity/mcp_config.json");
+                let legacy = roots.antigravity_dir.join("antigravity/mcp_config.json");
                 if legacy.is_file() && !same_canonical_file(&primary, &legacy) {
                     mutate_json_mcp_file(
                         &legacy,
@@ -112,7 +113,7 @@ fn write_server_state(
             }
 
             if cfg.active_agents.codex {
-                let toml_path = home.join(".codex/config.toml");
+                let toml_path = roots.codex_dir.join("config.toml");
                 mutate_toml_mcp_file(
                     &toml_path,
                     server_name,
@@ -123,9 +124,8 @@ fn write_server_state(
             }
 
             if cfg.active_agents.claude {
-                let claude_json = home.join(".claude.json");
                 mutate_json_mcp_file(
-                    &claude_json,
+                    &roots.claude_json,
                     JsonTargetKind::ClaudeGlobalMcpServers,
                     server_name,
                     entry,
@@ -136,64 +136,12 @@ fn write_server_state(
         }
         ToggleScope::Project { project_path } => {
             let project = Path::new(project_path);
-            let mut git_add = Vec::new();
-
-            if cfg.active_agents.antigravity {
-                let ag_path = project.join(".agents/mcp_config.json");
-                mutate_json_mcp_file(
-                    &ag_path,
-                    JsonTargetKind::McpServersRoot,
-                    server_name,
-                    entry,
-                    is_enable,
-                    custom_backups_root,
-                )?;
-                if is_enable {
-                    git_add.push(".agents/mcp_config.json".to_owned());
-                }
+            let edits = project_mcp_edits(cfg, home, project, server_name, entry)?;
+            let git_add: Vec<_> = edits.iter().filter_map(|edit| edit.git_relative.clone()).collect();
+            for edit in edits {
+                backup_if_exists(&edit.path, custom_backups_root)?;
+                backup::atomic_write_string(&edit.path, &edit.content)?;
             }
-
-            if cfg.active_agents.codex {
-                let codex_path = project.join(".codex/config.toml");
-                mutate_toml_mcp_file(
-                    &codex_path,
-                    server_name,
-                    entry,
-                    is_enable,
-                    custom_backups_root,
-                )?;
-                if is_enable {
-                    git_add.push(".codex/config.toml".to_owned());
-                }
-            }
-
-            if cfg.active_agents.claude {
-                let mcp_json = project.join(".mcp.json");
-                mutate_json_mcp_file(
-                    &mcp_json,
-                    JsonTargetKind::McpServersRoot,
-                    server_name,
-                    entry,
-                    is_enable,
-                    custom_backups_root,
-                )?;
-                if is_enable {
-                    git_add.push(".mcp.json".to_owned());
-                } else {
-                    let claude_json = home.join(".claude.json");
-                    if claude_json.is_file() {
-                        mutate_json_mcp_file(
-                            &claude_json,
-                            JsonTargetKind::ClaudeProjectMcpServers(project),
-                            server_name,
-                            None,
-                            false,
-                            custom_backups_root,
-                        )?;
-                    }
-                }
-            }
-
             if cfg.git_hygiene && !git_add.is_empty() {
                 git_hygiene::sync_git_exclude(project, &git_add, &[], custom_backups_root)?;
             }
@@ -201,6 +149,59 @@ fn write_server_state(
     }
 
     Ok(())
+}
+
+pub(crate) struct ProjectMcpEdit {
+    pub path: PathBuf,
+    pub agent: AgentKind,
+    pub content: String,
+    git_relative: Option<String>,
+}
+
+/// Renders project MCP changes in memory for both preview and apply.
+pub(crate) fn project_mcp_edits(
+    cfg: &AppConfig,
+    home: &Path,
+    project: &Path,
+    name: &str,
+    entry: Option<&McpCatalogEntry>,
+) -> Result<Vec<ProjectMcpEdit>, AppError> {
+    let enable = entry.is_some();
+    let mut edits = Vec::new();
+    let mut add = |path: PathBuf, agent, content: Option<String>, relative: Option<&str>| {
+        if let Some(content) = content {
+            edits.push(ProjectMcpEdit {
+                path, agent, content,
+                git_relative: relative.filter(|_| enable).map(str::to_owned),
+            });
+        }
+    };
+    if cfg.active_agents.antigravity {
+        let relative = ".agents/mcp_config.json";
+        let path = project.join(relative);
+        let content = render_json_mcp_edit(&path, JsonTargetKind::McpServersRoot, name, entry, enable)?;
+        add(path, AgentKind::Antigravity, content, Some(relative));
+    }
+    if cfg.active_agents.codex {
+        let relative = ".codex/config.toml";
+        let path = project.join(relative);
+        let content = render_toml_mcp_edit(&path, name, entry, enable)?;
+        add(path, AgentKind::Codex, content, Some(relative));
+    }
+    if cfg.active_agents.claude {
+        let relative = ".mcp.json";
+        let path = project.join(relative);
+        let content = render_json_mcp_edit(&path, JsonTargetKind::McpServersRoot, name, entry, enable)?;
+        add(path, AgentKind::Claude, content, Some(relative));
+        if !enable {
+            let path = config::resolve_agent_roots(cfg, home).claude_json;
+            let content = render_json_mcp_edit(
+                &path, JsonTargetKind::ClaudeProjectMcpServers(project), name, None, false,
+            )?;
+            add(path, AgentKind::Claude, content, None);
+        }
+    }
+    Ok(edits)
 }
 
 enum JsonTargetKind<'a> {
@@ -217,8 +218,22 @@ fn mutate_json_mcp_file(
     create_if_missing: bool,
     custom_backups_root: Option<&Path>,
 ) -> Result<(), AppError> {
+    if let Some(content) = render_json_mcp_edit(path, kind, server_name, entry, create_if_missing)? {
+        backup_if_exists(path, custom_backups_root)?;
+        backup::atomic_write_string(path, &content)?;
+    }
+    Ok(())
+}
+
+fn render_json_mcp_edit(
+    path: &Path,
+    kind: JsonTargetKind<'_>,
+    server_name: &str,
+    entry: Option<&McpCatalogEntry>,
+    create_if_missing: bool,
+) -> Result<Option<String>, AppError> {
     if !path.is_file() && !create_if_missing {
-        return Ok(());
+        return Ok(None);
     }
 
     let mut root_obj = if path.is_file() {
@@ -243,11 +258,11 @@ fn mutate_json_mcp_file(
             if let Some(entry) = entry {
                 let include_claude_type = matches!(kind, JsonTargetKind::ClaudeGlobalMcpServers)
                     || path.file_name().is_some_and(|n| n == ".mcp.json");
-                servers.insert(
-                    server_name.to_owned(),
-                    catalog_entry_to_json(entry, include_claude_type),
-                );
-                changed = true;
+                let value = catalog_entry_to_json(entry, include_claude_type);
+                if servers.get(server_name) != Some(&value) {
+                    servers.insert(server_name.to_owned(), value);
+                    changed = true;
+                }
             } else if servers.remove(server_name).is_some() {
                 changed = true;
             }
@@ -287,12 +302,11 @@ fn mutate_json_mcp_file(
     }
 
     if !changed {
-        return Ok(());
+        return Ok(None);
     }
 
-    backup_if_exists(path, custom_backups_root)?;
     let formatted = serde_json::to_string_pretty(&JsonValue::Object(root_obj))?;
-    backup::atomic_write_string(path, &format!("{formatted}\n"))
+    Ok(Some(format!("{formatted}\n")))
 }
 
 fn catalog_entry_to_json(entry: &McpCatalogEntry, include_type: bool) -> JsonValue {
@@ -348,8 +362,21 @@ fn mutate_toml_mcp_file(
     create_if_missing: bool,
     custom_backups_root: Option<&Path>,
 ) -> Result<(), AppError> {
+    if let Some(content) = render_toml_mcp_edit(path, server_name, entry, create_if_missing)? {
+        backup_if_exists(path, custom_backups_root)?;
+        backup::atomic_write_string(path, &content)?;
+    }
+    Ok(())
+}
+
+fn render_toml_mcp_edit(
+    path: &Path,
+    server_name: &str,
+    entry: Option<&McpCatalogEntry>,
+    create_if_missing: bool,
+) -> Result<Option<String>, AppError> {
     if !path.is_file() && !create_if_missing {
-        return Ok(());
+        return Ok(None);
     }
 
     let mut doc = if path.is_file() {
@@ -374,8 +401,18 @@ fn mutate_toml_mcp_file(
             .get_mut("mcp_servers")
             .and_then(|item| item.as_table_like_mut())
         {
-            mcp_table.insert(server_name, Item::Table(catalog_entry_to_toml(entry)));
-            changed = true;
+            let next = catalog_entry_to_toml(entry);
+            let current = mcp_table.get(server_name);
+            if !current.and_then(Item::as_table).is_some_and(|table| {
+                table.to_string() == next.to_string()
+            }) {
+                mcp_table.insert(server_name, Item::Table(next));
+                changed = true;
+            }
+        } else {
+            return Err(AppError::InvalidPath(format!(
+                "Expected an mcp_servers table in {}", path.display()
+            )));
         }
     } else if let Some(mcp_table) = doc
         .get_mut("mcp_servers")
@@ -387,11 +424,10 @@ fn mutate_toml_mcp_file(
     }
 
     if !changed {
-        return Ok(());
+        return Ok(None);
     }
 
-    backup_if_exists(path, custom_backups_root)?;
-    backup::atomic_write_string(path, &doc.to_string())
+    Ok(Some(doc.to_string()))
 }
 
 fn catalog_entry_to_toml(entry: &McpCatalogEntry) -> Table {
@@ -433,18 +469,19 @@ fn recover_server_from_configs(
     scope: &ToggleScope,
     server_name: &str,
 ) -> Option<McpCatalogEntry> {
+    let roots = crate::config::resolve_agent_roots(cfg, home);
     let mut candidates: Vec<PathBuf> = Vec::new();
     match scope {
         ToggleScope::Global => {
             if cfg.active_agents.antigravity {
-                candidates.push(home.join(".gemini/config/mcp_config.json"));
-                candidates.push(home.join(".gemini/antigravity/mcp_config.json"));
+                candidates.push(roots.antigravity_dir.join("config/mcp_config.json"));
+                candidates.push(roots.antigravity_dir.join("antigravity/mcp_config.json"));
             }
             if cfg.active_agents.codex {
-                candidates.push(home.join(".codex/config.toml"));
+                candidates.push(roots.codex_dir.join("config.toml"));
             }
             if cfg.active_agents.claude {
-                candidates.push(home.join(".claude.json"));
+                candidates.push(roots.claude_json);
             }
         }
         ToggleScope::Project { project_path } => {
@@ -676,17 +713,12 @@ mod tests {
         .expect("upsert");
 
         let cfg = AppConfig {
-            projects_root: None,
-            library_sources: Vec::new(),
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
-            ignore_folders: Vec::new(),
             active_agents: ActiveAgents {
                 antigravity: true,
                 codex: true,
                 claude: true,
             },
-            git_hygiene: true,
+            ..AppConfig::default()
         };
 
         toggle_mcp_server_with_paths(
@@ -768,17 +800,12 @@ mod tests {
         .expect("upsert");
 
         let cfg = AppConfig {
-            projects_root: None,
-            library_sources: Vec::new(),
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
-            ignore_folders: Vec::new(),
             active_agents: ActiveAgents {
                 antigravity: true,
                 codex: true,
                 claude: false,
             },
-            git_hygiene: true,
+            ..AppConfig::default()
         };
 
         let scope = ToggleScope::Project {

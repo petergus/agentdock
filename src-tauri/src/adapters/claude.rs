@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use crate::adapters::{AgentAdapter, PathSpec};
+use crate::config::AgentRoots;
 use crate::models::AgentKind;
 
 /// Adapter for Claude Code global and project paths.
@@ -13,20 +14,20 @@ impl AgentAdapter for ClaudeAdapter {
         AgentKind::Claude
     }
 
-    fn global_rule_files(&self, home: &Path) -> Vec<PathSpec> {
-        vec![PathSpec::primary(home.join(".claude/CLAUDE.md"))]
+    fn global_rule_files(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        vec![PathSpec::primary(roots.claude_dir.join("CLAUDE.md"))]
     }
 
-    fn global_rule_dirs(&self, _home: &Path) -> Vec<PathSpec> {
+    fn global_rule_dirs(&self, _roots: &AgentRoots) -> Vec<PathSpec> {
         Vec::new()
     }
 
-    fn global_skill_dirs(&self, home: &Path) -> Vec<PathSpec> {
-        vec![PathSpec::primary(home.join(".claude/skills"))]
+    fn global_skill_dirs(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        vec![PathSpec::primary(roots.claude_dir.join("skills"))]
     }
 
-    fn global_mcp_configs(&self, home: &Path) -> Vec<PathSpec> {
-        vec![PathSpec::primary(home.join(".claude.json"))]
+    fn global_mcp_configs(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        vec![PathSpec::primary(roots.claude_json.clone())]
     }
 
     fn project_rule_files(&self, project: &Path) -> Vec<PathSpec> {

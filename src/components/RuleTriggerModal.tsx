@@ -113,14 +113,14 @@ export function RuleTriggerModal({
         }
         pressedOutsideRef.current = false;
       }}
-      className="m-auto w-[480px] max-w-[calc(100vw-48px)] overflow-hidden rounded-[12px] border border-[var(--hairline)] bg-[var(--bg-content)] p-0 text-[var(--text-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.28)]"
+      className="mac-sheet m-auto w-[480px] max-w-[calc(100vw-48px)] overflow-hidden p-0"
     >
       <form onSubmit={handleSubmit} className="flex flex-col">
-        <div className="flex items-center justify-between border-b border-[var(--hairline)] px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-[var(--hairline)] bg-[var(--bg-toolbar)] px-5 py-3.5 backdrop-blur-xl">
           <div className="min-w-0">
             <h2
               id="rule-trigger-modal-title"
-              className="truncate text-[15px] font-semibold"
+              className="truncate text-[14px] font-semibold"
             >
               Rule Trigger: {rule?.filename}
             </h2>
@@ -138,14 +138,14 @@ export function RuleTriggerModal({
           </button>
         </div>
 
-        <div className="space-y-3.5 px-5 py-4">
+        <div className="space-y-3 px-5 py-4">
           {errorMsg && (
             <div className="rounded-[8px] border border-[var(--status-red)]/30 bg-[var(--status-red)]/10 px-3 py-2 text-[12.5px] text-[var(--status-red)]">
               {errorMsg}
             </div>
           )}
 
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-[var(--hairline)] bg-[var(--bg-elevated)] p-3">
+          <label className="mac-group flex cursor-pointer items-start gap-2.5 p-3">
             <input
               type="radio"
               name="rule-trigger"
@@ -167,7 +167,7 @@ export function RuleTriggerModal({
             </div>
           </label>
 
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-[var(--hairline)] bg-[var(--bg-elevated)] p-3">
+          <label className="mac-group flex cursor-pointer items-start gap-2.5 p-3">
             <input
               type="radio"
               name="rule-trigger"
@@ -189,13 +189,13 @@ export function RuleTriggerModal({
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Describe when the agent should read this rule…"
                   aria-label="Model decision description"
-                  className="h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-2.5 text-[12.5px]"
+                  className="mac-input h-8 w-full px-2.5 text-[12.5px]"
                 />
               )}
             </div>
           </label>
 
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-[var(--hairline)] bg-[var(--bg-elevated)] p-3">
+          <label className="mac-group flex cursor-pointer items-start gap-2.5 p-3">
             <input
               type="radio"
               name="rule-trigger"
@@ -222,25 +222,25 @@ export function RuleTriggerModal({
                   onChange={(e) => setGlobPattern(e.target.value)}
                   placeholder="src/**/*.tsx"
                   aria-label="Glob pattern"
-                  className="mono-path h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-2.5 text-[12px]"
+                  className="mac-input mono-path h-8 w-full px-2.5 text-[12px]"
                 />
               )}
             </div>
           </label>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--hairline)] bg-[var(--bg-elevated)] px-5 py-3">
+        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--hairline)] bg-[var(--bg-toolbar)] px-5 py-3 backdrop-blur-xl">
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
-            className="h-8 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-3.5 text-[12.5px] font-medium hover:bg-[var(--bg-hover)]"
+            className="mac-btn h-8 px-3.5 text-[12.5px] font-medium"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="h-8 rounded-[6px] bg-[var(--accent)] px-4 text-[12.5px] font-medium text-[var(--accent-text)] hover:opacity-90 disabled:opacity-60"
+            className="mac-btn-primary h-8 px-4 text-[12.5px] font-medium disabled:opacity-60"
           >
             {saving ? 'Saving…' : 'Update Trigger'}
           </button>

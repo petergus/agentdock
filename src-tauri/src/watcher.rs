@@ -46,6 +46,12 @@ impl WatcherManager {
         self._watcher = start_watcher(app.clone(), cfg, home, project_path.as_deref());
     }
 
+    /// Rebuilds watches using updated `cfg` while preserving the currently watched project.
+    pub fn refresh_keeping_project(&mut self, app: &AppHandle, cfg: &AppConfig, home: &Path) {
+        let project_path = self.watched_project.clone();
+        self._watcher = start_watcher(app.clone(), cfg, home, project_path.as_deref());
+    }
+
     /// Updates only the watched project directory while keeping `cfg` and `home` watches active.
     pub fn set_project(
         &mut self,
@@ -123,32 +129,45 @@ fn collect_watch_targets(
         }
     };
 
-    // Library sources (Obsidian vault skills/rules)
+    // Library sources (canonical skills & rules, expanding leading `~/`)
     for src in &cfg.library_sources {
-        add(PathBuf::from(&src.path), RecursiveMode::Recursive);
+        add(
+            crate::config::expand_user_path(home, &src.path),
+            RecursiveMode::Recursive,
+        );
     }
 
-    // Specific global agent files & folders (avoiding recursive watches on noisy ~/.codex or ~/.claude roots)
+    // Specific global agent files & folders resolved from custom overrides or home defaults
+    let roots = crate::config::resolve_agent_roots(cfg, home);
     for dir in [
-        home.join(".gemini/config/skills"),
-        home.join(".gemini/config/rules"),
-        home.join(".agents/skills"),
-        home.join(".claude/skills"),
+        roots.antigravity_dir.join("config/skills"),
+        roots.antigravity_dir.join("config/rules"),
+        roots.antigravity_dir.join("config/plugins"),
+        roots.shared_agents_dir.join("skills"),
+        roots.codex_dir.join("skills"),
+        roots.codex_dir.join("plugins/cache"),
+        roots.claude_dir.join("skills"),
+        roots.claude_dir.join("plugins"),
+        roots.claude_dir.join("agents"),
+        roots.claude_dir.join("commands"),
     ] {
         add(dir, RecursiveMode::Recursive);
     }
 
     for file in [
-        home.join(".gemini/AGENTS.md"),
-        home.join(".gemini/GEMINI.md"),
-        home.join(".gemini/config/AGENTS.md"),
-        home.join(".gemini/config/mcp_config.json"),
-        home.join(".gemini/antigravity/mcp_config.json"),
-        home.join(".codex/AGENTS.md"),
-        home.join(".codex/AGENTS.override.md"),
-        home.join(".codex/config.toml"),
-        home.join(".claude.json"),
-        home.join(".claude/CLAUDE.md"),
+        roots.antigravity_dir.join("AGENTS.md"),
+        roots.antigravity_dir.join("GEMINI.md"),
+        roots.antigravity_dir.join("config/AGENTS.md"),
+        roots.antigravity_dir.join("config/config.json"),
+        roots.antigravity_dir.join("config/mcp_config.json"),
+        roots.antigravity_dir.join("antigravity/mcp_config.json"),
+        roots.codex_dir.join("AGENTS.md"),
+        roots.codex_dir.join("AGENTS.override.md"),
+        roots.codex_dir.join("config.toml"),
+        roots.claude_json,
+        roots.claude_dir.join("CLAUDE.md"),
+        roots.claude_dir.join("settings.json"),
+        roots.claude_dir.join("settings.local.json"),
     ] {
         add(file, RecursiveMode::NonRecursive);
     }
@@ -223,11 +242,25 @@ pub fn is_relevant_change_path(path: &Path) -> bool {
             | "AGENTS.override.md"
             | "GEMINI.md"
             | "CLAUDE.md"
+            | "plugin.json"
             | "mcp_config.json"
             | "config.toml"
             | ".mcp.json"
             | ".claude.json"
+            | "settings.json"
+            | "settings.local.json"
+            | "installed_plugins.json"
     ) {
+        return true;
+    }
+
+    if file_name == "config.json"
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            == Some("config")
+    {
         return true;
     }
 
@@ -235,11 +268,11 @@ pub fn is_relevant_change_path(path: &Path) -> bool {
         return true;
     }
 
-    // Folder additions/removals inside skills, rules, or _support-docs
+    // Folder additions/removals inside skills, rules, plugins, or _support-docs
     path.parent()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
-        .is_some_and(|parent| matches!(parent, "skills" | "rules" | "_support-docs"))
+        .is_some_and(|parent| matches!(parent, "skills" | "rules" | "plugins" | "_support-docs"))
 }
 
 #[cfg(test)]
@@ -262,6 +295,18 @@ mod tests {
         )));
         assert!(is_relevant_change_path(Path::new(
             "/Users/peter/proj/.agents/rules/style.md"
+        )));
+        assert!(is_relevant_change_path(Path::new(
+            "/Users/peter/.gemini/config/config.json"
+        )));
+        assert!(is_relevant_change_path(Path::new(
+            "/Users/peter/.gemini/config/plugins/vercel-plugin/plugin.json"
+        )));
+        assert!(is_relevant_change_path(Path::new(
+            "/Users/peter/.gemini/config/plugins/vercel-plugin"
+        )));
+        assert!(is_relevant_change_path(Path::new(
+            "/Users/peter/.claude/settings.json"
         )));
 
         assert!(!is_relevant_change_path(Path::new(

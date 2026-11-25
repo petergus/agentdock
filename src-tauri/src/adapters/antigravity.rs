@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use crate::adapters::{AgentAdapter, PathSpec};
+use crate::config::AgentRoots;
 use crate::models::AgentKind;
 
 /// Adapter for Google Antigravity App and CLI paths.
@@ -13,32 +14,37 @@ impl AgentAdapter for AntigravityAdapter {
         AgentKind::Antigravity
     }
 
-    fn global_rule_files(&self, home: &Path) -> Vec<PathSpec> {
+    fn global_rule_files(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        let base = &roots.antigravity_dir;
         vec![
-            PathSpec::primary(home.join(".gemini/AGENTS.md")),
-            PathSpec::primary(home.join(".gemini/GEMINI.md")),
-            PathSpec::primary(home.join(".gemini/config/AGENTS.md")),
+            PathSpec::primary(base.join("AGENTS.md")),
+            PathSpec::primary(base.join("GEMINI.md")),
+            PathSpec::primary(base.join("config/AGENTS.md")),
         ]
     }
 
-    fn global_rule_dirs(&self, home: &Path) -> Vec<PathSpec> {
-        vec![PathSpec::primary(home.join(".gemini/config/rules"))]
+    fn global_rule_dirs(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        vec![PathSpec::primary(
+            roots.antigravity_dir.join("config/rules"),
+        )]
     }
 
-    fn global_skill_dirs(&self, home: &Path) -> Vec<PathSpec> {
+    fn global_skill_dirs(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        let base = &roots.antigravity_dir;
         vec![
-            PathSpec::primary(home.join(".gemini/config/skills")),
-            PathSpec::legacy(home.join(".gemini/antigravity/skills")),
-            PathSpec::legacy(home.join(".gemini/antigravity-cli/skills")),
-            PathSpec::legacy(home.join(".gemini/skills")),
-            PathSpec::legacy(home.join(".agents/skills")),
+            PathSpec::primary(base.join("config/skills")),
+            PathSpec::legacy(base.join("antigravity/skills")),
+            PathSpec::legacy(base.join("antigravity-cli/skills")),
+            PathSpec::legacy(base.join("skills")),
+            PathSpec::legacy(roots.shared_agents_dir.join("skills")),
         ]
     }
 
-    fn global_mcp_configs(&self, home: &Path) -> Vec<PathSpec> {
+    fn global_mcp_configs(&self, roots: &AgentRoots) -> Vec<PathSpec> {
+        let base = &roots.antigravity_dir;
         vec![
-            PathSpec::primary(home.join(".gemini/config/mcp_config.json")),
-            PathSpec::legacy(home.join(".gemini/antigravity/mcp_config.json")),
+            PathSpec::primary(base.join("config/mcp_config.json")),
+            PathSpec::legacy(base.join("antigravity/mcp_config.json")),
         ]
     }
 

@@ -9,64 +9,67 @@ use serde_json::Value as JsonValue;
 use toml_edit::DocumentMut;
 
 use crate::adapters::{enabled_adapters, AgentAdapter, PathSpec};
-use crate::config;
+use crate::config::{self, AgentRoots};
 use crate::error::AppError;
 use crate::frontmatter::{classify_rule_trigger, parse_markdown_frontmatter};
 use crate::mcp_catalog;
 use crate::models::InstalledPathInfo;
 use crate::models::{
-    AgentKind, AppConfig, CategoryGroup, LibrarySource, McpCatalog, McpCatalogEntry, McpServerItem,
-    McpTransport, ProjectSummary, RuleItem, RuleTrigger, ScopeSnapshot, ScopeType, SkillItem,
-    SkillSource, SupportDocItem, SupportDocMode, TokenBudgetBreakdown, WorkspaceOverview,
-    DEFAULT_MCP_ESTIMATE_TOKENS, DESCRIPTION_WARNING_CHARS, TOKEN_BUDGET_LIMIT,
+    McpDefinition, RuleInstallation,
+    AgentKind, AppConfig, CategoryGroup, McpCatalog, McpCatalogEntry, McpServerItem, McpTransport,
+    ProjectScanMode, ProjectSummary, ProjectTag, RuleItem, RuleTrigger, ScopeSnapshot, ScopeType,
+    SkillItem, SkillSource, SupportDocItem, SupportDocMode, TagColor, TokenBudgetBreakdown,
+    WorkspaceOverview, DEFAULT_LIBRARY_SCAN_DEPTH, DEFAULT_MCP_ESTIMATE_TOKENS,
+    DEFAULT_REFERENCE_SCAN_DEPTH, DESCRIPTION_WARNING_CHARS, TOKEN_BUDGET_LIMIT,
 };
+use crate::plugins;
 use crate::tokenizer;
 
 const SUPPORT_DOCS_START: &str = "<!-- AGENTDOCK:SUPPORT_DOCS_START -->";
 const SUPPORT_DOCS_END: &str = "<!-- AGENTDOCK:SUPPORT_DOCS_END -->";
 
 #[derive(Debug, Clone)]
-struct CanonicalLibraryRoot {
-    label: String,
-    raw_path: PathBuf,
-    canonical_path: PathBuf,
+pub(crate) struct CanonicalLibraryRoot {
+    pub label: String,
+    pub raw_path: PathBuf,
+    pub canonical_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
-struct LibraryCatalog {
-    roots: Vec<CanonicalLibraryRoot>,
-    skills: BTreeMap<String, LibrarySkillEntry>,
-    rules: BTreeMap<String, LibraryRuleEntry>,
-    warnings: Vec<String>,
+pub(crate) struct LibraryCatalog {
+    pub roots: Vec<CanonicalLibraryRoot>,
+    pub skills: BTreeMap<String, LibrarySkillEntry>,
+    pub rules: BTreeMap<String, LibraryRuleEntry>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
-struct LibrarySkillEntry {
-    slug: String,
-    name: String,
-    description: String,
-    description_too_long: bool,
-    upfront_tokens: usize,
-    on_demand_tokens: usize,
-    label: String,
-    source_root: String,
-    canonical_dir: PathBuf,
-    skill_md_path: PathBuf,
-    frontmatter_error: Option<String>,
+pub(crate) struct LibrarySkillEntry {
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub description_too_long: bool,
+    pub upfront_tokens: usize,
+    pub on_demand_tokens: usize,
+    pub label: String,
+    pub source_root: String,
+    pub canonical_dir: PathBuf,
+    pub skill_md_path: PathBuf,
+    pub frontmatter_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
-struct LibraryRuleEntry {
-    id: String,
-    filename: String,
-    canonical_path: PathBuf,
-    trigger: RuleTrigger,
-    description: Option<String>,
-    glob_pattern: Option<String>,
-    upfront_tokens: usize,
-    full_tokens: usize,
-    source_label: String,
-    frontmatter_error: Option<String>,
+pub(crate) struct LibraryRuleEntry {
+    pub id: String,
+    pub filename: String,
+    pub canonical_path: PathBuf,
+    pub trigger: RuleTrigger,
+    pub description: Option<String>,
+    pub glob_pattern: Option<String>,
+    pub upfront_tokens: usize,
+    pub full_tokens: usize,
+    pub source_label: String,
+    pub frontmatter_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +83,7 @@ enum TargetResolution {
     },
 }
 
-/// Performs a full read-only scan of Global scope and all discovered 2-level categorized Projects.
+/// Performs a full read-only scan of Global scope and all configured project locations.
 ///
 /// Auto-imports any newly discovered global MCP definitions into `mcp-catalog.json`.
 ///
@@ -90,8 +93,8 @@ pub fn scan_workspace(cfg: &AppConfig) -> Result<WorkspaceOverview, AppError> {
     let home = config::home_dir()?;
     let mut catalog = mcp_catalog::load_catalog().unwrap_or_default();
     let mut discovered_entries = Vec::new();
-    let library = scan_libraries(&cfg.library_sources);
-    let global_snapshot = scan_global_scope(
+    let library = scan_libraries(cfg, &home);
+    let mut global_snapshot = scan_global_scope(
         cfg,
         &home,
         &library,
@@ -102,7 +105,17 @@ pub fn scan_workspace(cfg: &AppConfig) -> Result<WorkspaceOverview, AppError> {
         let _ = mcp_catalog::save_catalog(&catalog);
     }
 
-    let categories = discover_projects(cfg, &home, &library, &catalog, &global_snapshot);
+    for root in config::effective_project_roots(cfg) {
+        let expanded = config::expand_user_path(&home, &root.path);
+        if !expanded.is_dir() {
+            global_snapshot
+                .scan_warnings
+                .push(format!("Project location not accessible: {}", root.path));
+        }
+    }
+
+    let (categories, discovered_auto_folders) =
+        discover_projects(cfg, &home, &library, &catalog, &global_snapshot);
     let global_tokens = global_snapshot.budget.effective_total;
 
     let last_scanned_ms = SystemTime::now()
@@ -115,8 +128,108 @@ pub fn scan_workspace(cfg: &AppConfig) -> Result<WorkspaceOverview, AppError> {
         global_tokens,
         global_snapshot,
         categories,
+        discovered_auto_folders,
         last_scanned_ms,
     })
+}
+
+/// Scans only the Global scope (skipping project discovery) for quick global switchboard actions.
+///
+/// # Errors
+/// Returns [`AppError`] if the user home directory cannot be resolved.
+pub fn scan_global_only(cfg: &AppConfig) -> Result<ScopeSnapshot, AppError> {
+    let home = config::home_dir()?;
+    Ok(scan_global_only_for_home(cfg, &home))
+}
+
+/// Scans only the Global scope against an explicit `home` directory.
+#[must_use]
+pub fn scan_global_only_for_home(cfg: &AppConfig, home: &Path) -> ScopeSnapshot {
+    let mut catalog = mcp_catalog::load_catalog().unwrap_or_default();
+    let mut discovered_entries = Vec::new();
+    let library = scan_libraries(cfg, home);
+    let snap = scan_global_scope(cfg, home, &library, &catalog, Some(&mut discovered_entries));
+    if mcp_catalog::sync_discovered_entries(&mut catalog, &discovered_entries) {
+        let _ = mcp_catalog::save_catalog(&catalog);
+    }
+    snap
+}
+
+/// Scans configured library sources for skills and rules against an explicit `home` directory.
+pub(crate) fn scan_libraries_for_home(cfg: &AppConfig, home: &Path) -> LibraryCatalog {
+    scan_libraries(cfg, home)
+}
+
+/// Discovers deduplicated `(category, name, path)` entries across configured roots and pinned projects.
+pub(crate) fn discover_project_entries(
+    cfg: &AppConfig,
+    home: &Path,
+) -> Vec<(String, String, PathBuf)> {
+    let ignore_set: BTreeSet<String> = cfg
+        .ignore_folders
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+    let mut seen_roots = BTreeSet::new();
+    let mut seen_projects = BTreeSet::new();
+    let mut entries = Vec::new();
+
+    for proj_root in config::effective_project_roots(cfg) {
+        let root_path = config::expand_user_path(home, &proj_root.path);
+        if !root_path.is_dir() {
+            continue;
+        }
+        let canonical_root = fs::canonicalize(&root_path).unwrap_or_else(|_| root_path.clone());
+        if !seen_roots.insert(canonical_root) {
+            continue;
+        }
+        let root_label = if proj_root.label.trim().is_empty() {
+            root_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Projects")
+                .to_owned()
+        } else {
+            proj_root.label.trim().to_owned()
+        };
+        let max_depth = proj_root.depth.clamp(1, 6);
+        let mut discovered = Vec::new();
+        collect_projects_recursive(
+            &root_path,
+            &root_label,
+            Vec::new(),
+            0,
+            max_depth,
+            proj_root.mode,
+            &ignore_set,
+            &mut discovered,
+        );
+        for (cat_name, proj_name, proj_path, _) in discovered {
+            let canonical = fs::canonicalize(&proj_path).unwrap_or_else(|_| proj_path.clone());
+            if seen_projects.insert(canonical) {
+                entries.push((cat_name, proj_name, proj_path));
+            }
+        }
+    }
+
+    for pinned_str in &cfg.pinned_projects {
+        let pinned_path = config::expand_user_path(home, pinned_str);
+        if !pinned_path.is_dir() {
+            continue;
+        }
+        let canonical = fs::canonicalize(&pinned_path).unwrap_or_else(|_| pinned_path.clone());
+        if !seen_projects.insert(canonical) {
+            continue;
+        }
+        let proj_name = pinned_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Pinned")
+            .to_owned();
+        entries.push(("Pinned".to_owned(), proj_name, pinned_path));
+    }
+
+    entries
 }
 
 struct ScanContext<'a> {
@@ -145,7 +258,7 @@ pub fn scan_project(
     }
     let mut catalog = mcp_catalog::load_catalog().unwrap_or_default();
     let mut discovered_entries = Vec::new();
-    let library = scan_libraries(&cfg.library_sources);
+    let library = scan_libraries(cfg, &home);
     let global_snapshot = scan_global_scope(
         cfg,
         &home,
@@ -185,24 +298,25 @@ pub fn scan_project_for_home(
         )));
     }
     let catalog = McpCatalog::default();
-    let library = scan_libraries(&cfg.library_sources);
-    let global_snapshot = scan_global_scope(cfg, home, &library, &catalog, None);
-    let ctx = ScanContext {
-        cfg,
-        home,
-        library: &library,
-        catalog: &catalog,
-        global_snapshot: &global_snapshot,
-    };
-    Ok(scan_project_with_baseline(
-        &ctx,
-        project_path,
-        category,
-        None,
-    ))
+    let library = scan_libraries(cfg, home);
+    Ok(scan_project_with_catalog(cfg, home, project_path, category, &library, &catalog))
 }
 
-fn scan_libraries(sources: &[LibrarySource]) -> LibraryCatalog {
+/// Scans an existing project against a caller's catalog without saving discoveries.
+pub(crate) fn scan_project_with_catalog(
+    cfg: &AppConfig,
+    home: &Path,
+    project_path: &Path,
+    category: &str,
+    library: &LibraryCatalog,
+    catalog: &McpCatalog,
+) -> ScopeSnapshot {
+    let global_snapshot = scan_global_scope(cfg, home, library, catalog, None);
+    let ctx = ScanContext { cfg, home, library, catalog, global_snapshot: &global_snapshot };
+    scan_project_with_baseline(&ctx, project_path, category, None)
+}
+
+fn scan_libraries(cfg: &AppConfig, home: &Path) -> LibraryCatalog {
     let mut catalog = LibraryCatalog {
         roots: Vec::new(),
         skills: BTreeMap::new(),
@@ -210,8 +324,19 @@ fn scan_libraries(sources: &[LibrarySource]) -> LibraryCatalog {
         warnings: Vec::new(),
     };
 
-    for src in sources {
-        let raw_path = PathBuf::from(&src.path);
+    let ignore_set: BTreeSet<String> = cfg
+        .ignore_folders
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+    let ref_depth = if cfg.reference_scan_depth == 0 {
+        DEFAULT_REFERENCE_SCAN_DEPTH
+    } else {
+        cfg.reference_scan_depth.clamp(1, 10)
+    };
+
+    for src in &cfg.library_sources {
+        let raw_path = config::expand_user_path(home, &src.path);
         let Ok(canonical_root) = fs::canonicalize(&raw_path) else {
             catalog.warnings.push(format!(
                 "Library source '{}' not accessible: {}",
@@ -228,77 +353,170 @@ fn scan_libraries(sources: &[LibrarySource]) -> LibraryCatalog {
             continue;
         }
 
+        let source_root_str = raw_path.to_string_lossy().into_owned();
         catalog.roots.push(CanonicalLibraryRoot {
             label: src.label.clone(),
             raw_path: raw_path.clone(),
             canonical_path: canonical_root.clone(),
         });
 
-        let direct_skills = collect_skills_in_parent(&canonical_root, &src.label, &src.path);
-        let nested_skills_dir = canonical_root.join("skills");
-        let nested_skills = if nested_skills_dir.is_dir() {
-            collect_skills_in_parent(&nested_skills_dir, &src.label, &src.path)
+        let max_depth = if src.depth == 0 {
+            DEFAULT_LIBRARY_SCAN_DEPTH
         } else {
-            Vec::new()
+            src.depth.clamp(1, 5)
         };
 
-        let found_skill_dirs = !direct_skills.is_empty() || !nested_skills.is_empty();
-        for skill in direct_skills.into_iter().chain(nested_skills) {
+        let mut discovered_skills = Vec::new();
+        collect_library_skills_recursive(
+            &canonical_root,
+            0,
+            max_depth,
+            &ignore_set,
+            ref_depth,
+            &src.label,
+            &source_root_str,
+            &mut discovered_skills,
+        );
+        let found_skill_dirs = !discovered_skills.is_empty();
+        for skill in discovered_skills {
             catalog.skills.entry(skill.slug.clone()).or_insert(skill);
         }
 
-        let rules_subdir = canonical_root.join("rules");
-        if rules_subdir.is_dir() {
-            collect_library_rules_in_dir(&rules_subdir, &src.label, &mut catalog.rules);
-        }
-
-        // Only scan immediate root `*.md` as reusable rules when this library root isn't purely a skills folder
-        // (avoids mistaking index docs like `Skill Library.md` inside a skills vault folder for agent rules).
         let label_lower = src.label.to_ascii_lowercase();
         let path_lower = canonical_root.to_string_lossy().to_ascii_lowercase();
         let looks_like_skills_root =
             found_skill_dirs && (label_lower.contains("skill") || path_lower.ends_with("/skills"));
-        if !looks_like_skills_root {
-            collect_library_rules_in_dir(&canonical_root, &src.label, &mut catalog.rules);
-        }
+
+        collect_library_rules_recursive(
+            &canonical_root,
+            0,
+            max_depth,
+            &ignore_set,
+            &src.label,
+            looks_like_skills_root,
+            &mut catalog.rules,
+        );
     }
 
     catalog
 }
 
-fn collect_skills_in_parent(
-    parent: &Path,
+#[allow(clippy::too_many_arguments)]
+fn collect_library_skills_recursive(
+    dir: &Path,
+    current_depth: u8,
+    max_depth: u8,
+    ignore_set: &BTreeSet<String>,
+    ref_depth: u8,
     label: &str,
     source_root: &str,
-) -> Vec<LibrarySkillEntry> {
-    let mut entries = Vec::new();
-    let Ok(read_dir) = fs::read_dir(parent) else {
-        return entries;
+    out: &mut Vec<LibrarySkillEntry>,
+) {
+    if current_depth >= max_depth {
+        return;
+    }
+
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+
+    let mut children: Vec<(String, PathBuf)> = read_dir
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let slug = entry.file_name().to_str()?.to_owned();
+            if !path.is_dir() || is_ignored_dir(&slug, ignore_set) {
+                return None;
+            }
+            Some((slug, path))
+        })
+        .collect();
+    children.sort_by_key(|a| a.0.to_lowercase());
+
+    for (slug, path) in children {
+        let skill_md = path.join("SKILL.md");
+        if skill_md.is_file() {
+            if let Some(parsed_entry) =
+                parse_library_skill(&slug, &path, &skill_md, label, source_root, ref_depth)
+            {
+                out.push(parsed_entry);
+            }
+            // Do not descend into subdirectories of a matched skill (references/scripts/assets).
+            continue;
+        }
+
+        if is_skill_resource_subdir(&slug) {
+            continue;
+        }
+
+        collect_library_skills_recursive(
+            &path,
+            current_depth + 1,
+            max_depth,
+            ignore_set,
+            ref_depth,
+            label,
+            source_root,
+            out,
+        );
+    }
+}
+
+fn collect_library_rules_recursive(
+    dir: &Path,
+    current_depth: u8,
+    max_depth: u8,
+    ignore_set: &BTreeSet<String>,
+    source_label: &str,
+    skip_root_markdown: bool,
+    out: &mut BTreeMap<String, LibraryRuleEntry>,
+) {
+    // If this folder itself is a skill directory, never treat its helper docs as rules.
+    if current_depth > 0 && dir.join("SKILL.md").is_file() {
+        return;
+    }
+
+    if !(current_depth == 0 && skip_root_markdown) {
+        collect_library_rules_in_dir(dir, source_label, out);
+    }
+
+    if current_depth >= max_depth {
+        return;
+    }
+
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
     };
 
     for entry in read_dir.flatten() {
         let path = entry.path();
-        let Some(slug) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+        let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
             continue;
         };
-        if slug.starts_with('.') {
-            continue;
-        }
-        if !path.is_dir() {
-            continue;
-        }
-        let skill_md = path.join("SKILL.md");
-        if !skill_md.is_file() {
-            continue;
-        }
-
-        if let Some(parsed_entry) = parse_library_skill(&slug, &path, &skill_md, label, source_root)
+        if !path.is_dir()
+            || is_ignored_dir(&name, ignore_set)
+            || is_skill_resource_subdir(&name)
+            || name.eq_ignore_ascii_case("skills")
         {
-            entries.push(parsed_entry);
+            continue;
         }
+        collect_library_rules_recursive(
+            &path,
+            current_depth + 1,
+            max_depth,
+            ignore_set,
+            source_label,
+            false,
+            out,
+        );
     }
+}
 
-    entries
+fn is_skill_resource_subdir(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "references" | "scripts" | "assets" | "resources" | "templates" | "examples" | "evals"
+    )
 }
 
 fn parse_library_skill(
@@ -307,6 +525,7 @@ fn parse_library_skill(
     skill_md: &Path,
     label: &str,
     source_root: &str,
+    ref_depth: u8,
 ) -> Option<LibrarySkillEntry> {
     let content = fs::read_to_string(skill_md).ok()?;
     let parsed = parse_markdown_frontmatter(&content);
@@ -315,7 +534,7 @@ fn parse_library_skill(
     let description_too_long = description.chars().count() > DESCRIPTION_WARNING_CHARS;
     let upfront_tokens = tokenizer::skill_upfront_tokens(&name, &description);
     let on_demand_tokens =
-        tokenizer::count_tokens(&parsed.body) + count_reference_tokens(skill_dir);
+        tokenizer::count_tokens(&parsed.body) + count_reference_tokens(skill_dir, ref_depth);
     let canonical_dir = fs::canonicalize(skill_dir).unwrap_or_else(|_| skill_dir.to_path_buf());
     let canonical_md = fs::canonicalize(skill_md).unwrap_or_else(|_| skill_md.to_path_buf());
 
@@ -393,14 +612,15 @@ fn is_ignored_library_markdown(filename: &str) -> bool {
         || upper == "SKILL LIBRARY.MD"
 }
 
-fn count_reference_tokens(skill_dir: &Path) -> usize {
+fn count_reference_tokens(skill_dir: &Path, max_depth: u8) -> usize {
     let refs_dir = skill_dir.join("references");
     if !refs_dir.is_dir() {
         return 0;
     }
+    let depth = usize::from(max_depth.clamp(1, 10));
     let mut total = 0;
     for entry in walkdir::WalkDir::new(refs_dir)
-        .max_depth(3)
+        .max_depth(depth)
         .into_iter()
         .flatten()
     {
@@ -473,16 +693,40 @@ fn scan_global_scope(
     discovered_mcp: Option<&mut Vec<McpCatalogEntry>>,
 ) -> ScopeSnapshot {
     let adapters = enabled_adapters(cfg.active_agents);
+    let agent_roots = config::resolve_agent_roots(cfg, home);
+    let ref_depth = if cfg.reference_scan_depth == 0 {
+        DEFAULT_REFERENCE_SCAN_DEPTH
+    } else {
+        cfg.reference_scan_depth.clamp(1, 10)
+    };
     let mut warnings = library.warnings.clone();
 
-    let (skills, unmanaged_count) = scan_global_skills(&adapters, home, library, &mut warnings);
-    let mcp_servers = scan_global_mcp(&adapters, home, catalog, discovered_mcp, &mut warnings);
-    let rules = scan_global_rules(&adapters, home, library);
+    let (skills, unmanaged_count) =
+        scan_global_skills(&adapters, &agent_roots, library, ref_depth, &mut warnings);
+    let plugins = plugins::scan_global_plugins(cfg, &agent_roots, &mut warnings);
+    let mcp_servers = scan_global_mcp(
+        &adapters,
+        &agent_roots,
+        catalog,
+        discovered_mcp,
+        &mut warnings,
+    );
+    let rules = scan_global_rules(&adapters, &agent_roots, library);
 
     let skills_global: usize = skills
         .iter()
         .filter(|s| s.active_globally)
         .map(|s| s.upfront_tokens)
+        .sum();
+    let plugins_global: usize = plugins
+        .iter()
+        .filter(|p| p.enabled)
+        .map(|p| p.upfront_tokens)
+        .sum();
+    let plugin_rules_global: usize = plugins
+        .iter()
+        .filter(|p| p.enabled)
+        .map(|p| p.rules_upfront_tokens)
         .sum();
     let mcp_global: usize = mcp_servers
         .iter()
@@ -493,9 +737,10 @@ fn scan_global_scope(
         .iter()
         .filter(|r| r.active_globally)
         .map(|r| r.upfront_tokens)
-        .sum();
+        .sum::<usize>()
+        + plugin_rules_global;
 
-    let skills_mcp_global = skills_global + mcp_global;
+    let skills_mcp_global = skills_global + plugins_global + mcp_global;
     let budget = TokenBudgetBreakdown {
         rules_global,
         rules_project: 0,
@@ -503,6 +748,7 @@ fn scan_global_scope(
         rules_limit: TOKEN_BUDGET_LIMIT,
         skills_global,
         skills_project: 0,
+        plugins_global,
         mcp_global,
         mcp_project: 0,
         skills_mcp_global,
@@ -519,6 +765,7 @@ fn scan_global_scope(
         path: Some(home.to_string_lossy().into_owned()),
         budget,
         skills,
+        plugins,
         unmanaged_global_skills_count: unmanaged_count,
         mcp_servers,
         rules,
@@ -527,14 +774,15 @@ fn scan_global_scope(
     }
 }
 
-fn collect_all_global_skill_dirs(home: &Path) -> Vec<PathBuf> {
+fn collect_all_global_skill_dirs(roots: &AgentRoots) -> Vec<PathBuf> {
     let candidates = [
-        home.join(".gemini/config/skills"),
-        home.join(".gemini/antigravity/skills"),
-        home.join(".gemini/antigravity-cli/skills"),
-        home.join(".gemini/skills"),
-        home.join(".agents/skills"),
-        home.join(".claude/skills"),
+        roots.antigravity_dir.join("config/skills"),
+        roots.antigravity_dir.join("antigravity/skills"),
+        roots.antigravity_dir.join("antigravity-cli/skills"),
+        roots.antigravity_dir.join("skills"),
+        roots.shared_agents_dir.join("skills"),
+        roots.codex_dir.join("skills"),
+        roots.claude_dir.join("skills"),
     ];
     candidates
         .into_iter()
@@ -544,12 +792,13 @@ fn collect_all_global_skill_dirs(home: &Path) -> Vec<PathBuf> {
 
 fn scan_global_skills(
     adapters: &[Box<dyn AgentAdapter>],
-    home: &Path,
+    roots: &AgentRoots,
     library: &LibraryCatalog,
+    ref_depth: u8,
     warnings: &mut Vec<String>,
 ) -> (Vec<SkillItem>, usize) {
     let mut map: BTreeMap<String, SkillItem> = BTreeMap::new();
-    let global_dirs_canonical = collect_all_global_skill_dirs(home);
+    let global_dirs_canonical = collect_all_global_skill_dirs(roots);
 
     for (slug, lib) in &library.skills {
         map.insert(
@@ -580,7 +829,7 @@ fn scan_global_skills(
 
     for adapter in adapters {
         let agent = adapter.kind();
-        for dir_spec in adapter.global_skill_dirs(home) {
+        for dir_spec in adapter.global_skill_dirs(roots) {
             if !dir_spec.path.is_dir() {
                 continue;
             }
@@ -609,6 +858,9 @@ fn scan_global_skills(
                     TargetResolution::BrokenSymlink { target } => {
                         let installed = InstalledPathInfo {
                             agent,
+                            scope: ScopeType::Global,
+                            target: target.clone(),
+                            upfront_tokens: None,
                             path: entry_path.to_string_lossy().into_owned(),
                             is_symlink: true,
                             is_legacy: dir_spec.is_legacy,
@@ -658,6 +910,9 @@ fn scan_global_skills(
 
                         let installed = InstalledPathInfo {
                             agent,
+                            scope: ScopeType::Global,
+                            target: canonical.to_string_lossy().into_owned(),
+                            upfront_tokens: map_skill_tokens(&map, &slug, &canonical, &skill_md),
                             path: entry_path.to_string_lossy().into_owned(),
                             is_symlink,
                             is_legacy: dir_spec.is_legacy,
@@ -674,7 +929,7 @@ fn scan_global_skills(
                             push_unique_agent(&mut existing.active_agents, agent);
                             existing.installed_paths.push(installed);
                         } else if let Some(parsed) =
-                            parse_skill_from_disk(&slug, &canonical, &skill_md)
+                            parse_skill_from_disk(&slug, &canonical, &skill_md, ref_depth)
                         {
                             let source = library_source.unwrap_or(SkillSource::GlobalOnly);
                             map.insert(
@@ -728,10 +983,28 @@ struct ParsedSkillDisk {
     frontmatter_error: Option<String>,
 }
 
+fn map_skill_tokens(
+    skills: &BTreeMap<String, SkillItem>,
+    slug: &str,
+    canonical: &Path,
+    skill_md: &Path,
+) -> Option<usize> {
+    if let Some(skill) = skills.get(slug).filter(|skill| Path::new(&skill.skill_dir_path) == canonical) {
+        return Some(skill.upfront_tokens);
+    }
+    let content = fs::read_to_string(skill_md).ok()?;
+    let parsed = parse_markdown_frontmatter(&content);
+    Some(tokenizer::skill_upfront_tokens(
+        parsed.name.as_deref().unwrap_or(slug),
+        parsed.description.as_deref().unwrap_or_default(),
+    ))
+}
+
 fn parse_skill_from_disk(
     slug: &str,
     canonical_dir: &Path,
     skill_md: &Path,
+    ref_depth: u8,
 ) -> Option<ParsedSkillDisk> {
     let content = fs::read_to_string(skill_md).ok()?;
     let parsed = parse_markdown_frontmatter(&content);
@@ -740,7 +1013,7 @@ fn parse_skill_from_disk(
     let description_too_long = description.chars().count() > DESCRIPTION_WARNING_CHARS;
     let upfront_tokens = tokenizer::skill_upfront_tokens(&name, &description);
     let on_demand_tokens =
-        tokenizer::count_tokens(&parsed.body) + count_reference_tokens(canonical_dir);
+        tokenizer::count_tokens(&parsed.body) + count_reference_tokens(canonical_dir, ref_depth);
 
     Some(ParsedSkillDisk {
         name,
@@ -755,7 +1028,7 @@ fn parse_skill_from_disk(
 
 fn scan_global_mcp(
     adapters: &[Box<dyn AgentAdapter>],
-    home: &Path,
+    roots: &AgentRoots,
     catalog: &McpCatalog,
     mut discovered_mcp: Option<&mut Vec<McpCatalogEntry>>,
     warnings: &mut Vec<String>,
@@ -788,13 +1061,14 @@ fn scan_global_mcp(
                 defined_globally_collision: false,
                 active_agents: Vec::new(),
                 source_configs: Vec::new(),
+                definitions: Vec::new(),
             },
         );
     }
 
     for adapter in adapters {
         let agent = adapter.kind();
-        for spec in adapter.global_mcp_configs(home) {
+        for spec in adapter.global_mcp_configs(roots) {
             if !spec.path.is_file() {
                 continue;
             }
@@ -1103,6 +1377,7 @@ fn merge_mcp_records(
                 defined_globally_collision: false,
                 active_agents: Vec::new(),
                 source_configs: Vec::new(),
+                definitions: Vec::new(),
             });
 
         if is_global_scope && rec.enabled {
@@ -1117,13 +1392,19 @@ fn merge_mcp_records(
             entry.transport = rec.transport;
         }
         push_unique_agent(&mut entry.active_agents, rec.agent);
+        entry.definitions.push(McpDefinition {
+            agent: rec.agent,
+            scope: if is_global_scope { ScopeType::Global } else { ScopeType::Project },
+            path: rec.config_path.clone(),
+            enabled: rec.enabled,
+        });
         push_unique_string(&mut entry.source_configs, rec.config_path);
     }
 }
 
 fn scan_global_rules(
     adapters: &[Box<dyn AgentAdapter>],
-    home: &Path,
+    roots: &AgentRoots,
     library: &LibraryCatalog,
 ) -> Vec<RuleItem> {
     let mut map: BTreeMap<String, RuleItem> = BTreeMap::new();
@@ -1149,13 +1430,14 @@ fn scan_global_rules(
                 active_agents: Vec::new(),
                 frontmatter_error: lib_rule.frontmatter_error.clone(),
                 is_editable_trigger: true,
+                installations: Vec::new(),
             },
         );
     }
 
     for adapter in adapters {
         let agent = adapter.kind();
-        for spec in adapter.global_rule_files(home) {
+        for spec in adapter.global_rule_files(roots) {
             scan_single_rule_file(
                 &spec,
                 agent,
@@ -1166,7 +1448,7 @@ fn scan_global_rules(
                 &mut map,
             );
         }
-        for dir_spec in adapter.global_rule_dirs(home) {
+        for dir_spec in adapter.global_rule_dirs(roots) {
             scan_rule_dir(&dir_spec, agent, library, true, false, &mut map);
         }
     }
@@ -1243,6 +1525,7 @@ fn scan_single_rule_file(
         .unwrap_or("rule.md")
         .to_owned();
 
+    let scope = if is_global { ScopeType::Global } else { ScopeType::Project };
     match resolution {
         TargetResolution::BrokenSymlink { target } => {
             let key = spec.path.to_string_lossy().into_owned();
@@ -1264,8 +1547,14 @@ fn scan_single_rule_file(
                 active_agents: Vec::new(),
                 frontmatter_error: Some(format!("Broken symlink -> {target}")),
                 is_editable_trigger: false,
+                installations: Vec::new(),
             });
             push_unique_agent(&mut item.active_agents, agent);
+            item.installations.push(RuleInstallation {
+                agent, scope, path: spec.path.to_string_lossy().into_owned(),
+                trigger: RuleTrigger::Invalid, glob_pattern: None, upfront_tokens: 0,
+                is_symlink: true, error: Some(format!("Broken symlink -> {target}")),
+            });
         }
         TargetResolution::Valid {
             canonical,
@@ -1279,17 +1568,6 @@ fn scan_single_rule_file(
             };
             let canonical_str = canonical.to_string_lossy().into_owned();
 
-            if let Some(existing) = map.get_mut(&canonical_str) {
-                if is_global {
-                    existing.active_globally = true;
-                }
-                if is_project {
-                    existing.active_in_project = true;
-                }
-                existing.is_symlink |= is_symlink;
-                push_unique_agent(&mut existing.active_agents, agent);
-                return;
-            }
 
             let full_tokens = tokenizer::count_tokens(&content);
             let (trigger, description, glob_pattern, upfront_tokens, frontmatter_error, editable) =
@@ -1312,6 +1590,24 @@ fn scan_single_rule_file(
                         )
                     }
                 };
+
+            let installation = RuleInstallation {
+                agent, scope, path: spec.path.to_string_lossy().into_owned(),
+                trigger, glob_pattern: glob_pattern.clone(), upfront_tokens,
+                is_symlink, error: frontmatter_error.clone(),
+            };
+            if let Some(existing) = map.get_mut(&canonical_str) {
+                if is_global {
+                    existing.active_globally = true;
+                }
+                if is_project {
+                    existing.active_in_project = true;
+                }
+                existing.is_symlink |= is_symlink;
+                push_unique_agent(&mut existing.active_agents, agent);
+                existing.installations.push(installation);
+                return;
+            }
 
             let source_label = match attribute_library_source(&canonical, library) {
                 Some(SkillSource::Library { label, .. }) => label,
@@ -1339,6 +1635,7 @@ fn scan_single_rule_file(
                     active_agents: vec![agent],
                     frontmatter_error,
                     is_editable_trigger: editable,
+                    installations: vec![installation],
                 },
             );
         }
@@ -1363,7 +1660,7 @@ fn discover_projects(
     library: &LibraryCatalog,
     catalog: &McpCatalog,
     global_snapshot: &ScopeSnapshot,
-) -> Vec<CategoryGroup> {
+) -> (Vec<CategoryGroup>, Vec<String>) {
     let ignore_set: BTreeSet<String> = cfg
         .ignore_folders
         .iter()
@@ -1372,83 +1669,141 @@ fn discover_projects(
     let pinned_canonicals: BTreeSet<PathBuf> = cfg
         .pinned_projects
         .iter()
-        .filter_map(|p| fs::canonicalize(p).ok())
+        .filter_map(|p| fs::canonicalize(config::expand_user_path(home, p)).ok())
+        .collect();
+    let hidden_canonicals: BTreeSet<PathBuf> = cfg
+        .hidden_projects
+        .iter()
+        .map(|p| {
+            let expanded = config::expand_user_path(home, p);
+            fs::canonicalize(&expanded).unwrap_or(expanded)
+        })
         .collect();
 
+    let active_sets_by_canon: BTreeMap<String, Vec<String>> = cfg
+        .project_active_sets
+        .iter()
+        .map(|(k, v)| (config::canonical_path_key(home, k), v.clone()))
+        .collect();
+    let manual_tags_by_canon: BTreeMap<String, Vec<String>> = cfg
+        .project_manual_tags
+        .iter()
+        .map(|(k, v)| (config::canonical_path_key(home, k), v.clone()))
+        .collect();
+    let muted_tags_by_canon: BTreeMap<String, Vec<String>> = cfg
+        .project_muted_auto_tags
+        .iter()
+        .map(|(k, v)| (config::canonical_path_key(home, k), v.clone()))
+        .collect();
+
+    let mut seen_roots: BTreeSet<PathBuf> = BTreeSet::new();
     let mut seen_projects: BTreeSet<PathBuf> = BTreeSet::new();
-    let mut groups: Vec<CategoryGroup> = Vec::new();
+    let mut category_map: BTreeMap<String, Vec<ProjectSummary>> = BTreeMap::new();
+    let mut discovered_folders_map: BTreeMap<String, String> = BTreeMap::new();
 
-    if let Some(root_str) = &cfg.projects_root {
-        let root = PathBuf::from(root_str);
-        if root.is_dir() {
-            if let Ok(cat_entries) = fs::read_dir(&root) {
-                let mut cat_dirs: Vec<(String, PathBuf)> = cat_entries
-                    .flatten()
-                    .filter_map(|e| {
-                        let p = e.path();
-                        let name = e.file_name().to_str()?.to_owned();
-                        if !p.is_dir() || is_ignored_dir(&name, &ignore_set) {
-                            return None;
-                        }
-                        Some((name, p))
-                    })
-                    .collect();
+    for proj_root in config::effective_project_roots(cfg) {
+        let root_path = config::expand_user_path(home, &proj_root.path);
+        if !root_path.is_dir() {
+            continue;
+        }
+        let canonical_root = fs::canonicalize(&root_path).unwrap_or_else(|_| root_path.clone());
+        if !seen_roots.insert(canonical_root) {
+            continue;
+        }
 
-                cat_dirs.sort_by_key(|a| a.0.to_lowercase());
+        let root_label = if proj_root.label.trim().is_empty() {
+            root_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Projects")
+                .to_owned()
+        } else {
+            proj_root.label.trim().to_owned()
+        };
 
-                for (cat_name, cat_path) in cat_dirs {
-                    let Ok(proj_entries) = fs::read_dir(&cat_path) else {
-                        continue;
-                    };
-                    let mut projects = Vec::new();
-                    for entry in proj_entries.flatten() {
-                        let proj_path = entry.path();
-                        let Some(proj_name) = entry.file_name().to_str().map(ToOwned::to_owned)
-                        else {
-                            continue;
-                        };
-                        if !proj_path.is_dir() || is_ignored_dir(&proj_name, &ignore_set) {
-                            continue;
-                        }
-                        let canonical =
-                            fs::canonicalize(&proj_path).unwrap_or_else(|_| proj_path.clone());
-                        if !seen_projects.insert(canonical.clone()) {
-                            continue;
-                        }
-                        let is_pinned = pinned_canonicals.contains(&canonical);
-                        let ctx = ScanContext {
-                            cfg,
-                            home,
-                            library,
-                            catalog,
-                            global_snapshot,
-                        };
-                        let snap = scan_project_with_baseline(&ctx, &proj_path, &cat_name, None);
-                        projects.push(build_project_summary(
-                            &proj_name, &cat_name, &proj_path, is_pinned, &snap,
-                        ));
-                    }
+        let max_depth = proj_root.depth.clamp(1, 6);
+        let mut discovered = Vec::new();
+        collect_projects_recursive(
+            &root_path,
+            &root_label,
+            Vec::new(),
+            0,
+            max_depth,
+            proj_root.mode,
+            &ignore_set,
+            &mut discovered,
+        );
 
-                    projects.sort_by_key(|a| a.name.to_lowercase());
-                    if !projects.is_empty() {
-                        groups.push(CategoryGroup {
-                            name: cat_name,
-                            projects,
-                        });
-                    }
-                }
+        let ctx = ScanContext {
+            cfg,
+            home,
+            library,
+            catalog,
+            global_snapshot,
+        };
+
+        for (cat_name, proj_name, proj_path, ancestor_folders) in discovered {
+            let canonical = fs::canonicalize(&proj_path).unwrap_or_else(|_| proj_path.clone());
+            if !seen_projects.insert(canonical.clone()) {
+                continue;
             }
+            for folder in &ancestor_folders {
+                discovered_folders_map
+                    .entry(folder.to_ascii_lowercase())
+                    .or_insert_with(|| folder.clone());
+            }
+            let canon_key = canonical.to_string_lossy().into_owned();
+            let is_pinned = pinned_canonicals.contains(&canonical);
+            let is_hidden = hidden_canonicals.contains(&canonical);
+            let tags = resolve_project_tags(
+                cfg,
+                &canon_key,
+                &ancestor_folders,
+                &manual_tags_by_canon,
+                &muted_tags_by_canon,
+            );
+            let active_set_ids = active_sets_by_canon
+                .get(&canon_key)
+                .cloned()
+                .unwrap_or_default();
+            let snap = scan_project_with_baseline(&ctx, &proj_path, &cat_name, None);
+            category_map
+                .entry(cat_name.clone())
+                .or_default()
+                .push(build_project_summary(
+                    &proj_name,
+                    &cat_name,
+                    &proj_path,
+                    is_pinned,
+                    is_hidden,
+                    ancestor_folders,
+                    tags,
+                    active_set_ids,
+                    &snap,
+                ));
         }
     }
 
+    let mut groups: Vec<CategoryGroup> = category_map
+        .into_iter()
+        .filter_map(|(name, mut projects)| {
+            if projects.is_empty() {
+                return None;
+            }
+            projects.sort_by_key(|a| a.name.to_lowercase());
+            Some(CategoryGroup { name, projects })
+        })
+        .collect();
+    groups.sort_by_key(|g| g.name.to_lowercase());
+
     let mut pinned_extra = Vec::new();
     for pinned_str in &cfg.pinned_projects {
-        let pinned_path = PathBuf::from(pinned_str);
+        let pinned_path = config::expand_user_path(home, pinned_str);
         if !pinned_path.is_dir() {
             continue;
         }
         let canonical = fs::canonicalize(&pinned_path).unwrap_or_else(|_| pinned_path.clone());
-        if !seen_projects.insert(canonical) {
+        if !seen_projects.insert(canonical.clone()) {
             continue;
         }
         let proj_name = pinned_path
@@ -1456,6 +1811,31 @@ fn discover_projects(
             .and_then(|n| n.to_str())
             .unwrap_or("Pinned")
             .to_owned();
+        let ancestor_folders: Vec<String> = pinned_path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| vec![s.to_owned()])
+            .unwrap_or_default();
+        for folder in &ancestor_folders {
+            discovered_folders_map
+                .entry(folder.to_ascii_lowercase())
+                .or_insert_with(|| folder.clone());
+        }
+        let canon_key = canonical.to_string_lossy().into_owned();
+        let is_hidden = hidden_canonicals.contains(&canonical);
+        let tags = resolve_project_tags(
+            cfg,
+            &canon_key,
+            &ancestor_folders,
+            &manual_tags_by_canon,
+            &muted_tags_by_canon,
+        );
+        let active_set_ids = active_sets_by_canon
+            .get(&canon_key)
+            .cloned()
+            .unwrap_or_default();
         let ctx = ScanContext {
             cfg,
             home,
@@ -1469,6 +1849,10 @@ fn discover_projects(
             "Pinned",
             &pinned_path,
             true,
+            is_hidden,
+            ancestor_folders,
+            tags,
+            active_set_ids,
             &snap,
         ));
     }
@@ -1484,18 +1868,168 @@ fn discover_projects(
         );
     }
 
-    groups
+    let discovered_auto_folders: Vec<String> = discovered_folders_map.into_values().collect();
+    (groups, discovered_auto_folders)
+}
+
+fn resolve_project_tags(
+    cfg: &AppConfig,
+    canon_key: &str,
+    ancestor_folders: &[String],
+    manual_tags_by_canon: &BTreeMap<String, Vec<String>>,
+    muted_tags_by_canon: &BTreeMap<String, Vec<String>>,
+) -> Vec<ProjectTag> {
+    let muted: BTreeSet<&str> = muted_tags_by_canon
+        .get(canon_key)
+        .map(|list| list.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let mut emitted_ids = BTreeSet::new();
+    let mut emitted_labels = BTreeSet::new();
+    let mut out = Vec::new();
+
+    for folder in ancestor_folders {
+        if let Some(def) = cfg.tag_definitions.iter().find(|d| {
+            d.auto_folder
+                .as_deref()
+                .is_some_and(|af| af.eq_ignore_ascii_case(folder))
+        }) {
+            if def.hidden || muted.contains(def.id.as_str()) {
+                continue;
+            }
+            let lower_label = def.label.to_ascii_lowercase();
+            if emitted_ids.insert(def.id.clone()) && emitted_labels.insert(lower_label) {
+                out.push(ProjectTag {
+                    id: def.id.clone(),
+                    label: def.label.clone(),
+                    color: def.color,
+                    is_auto: true,
+                    source_folder: Some(folder.clone()),
+                });
+            }
+        } else {
+            let synthetic_id = format!("auto:{}", folder.to_ascii_lowercase());
+            if muted.contains(synthetic_id.as_str()) {
+                continue;
+            }
+            let lower_label = folder.to_ascii_lowercase();
+            if emitted_ids.insert(synthetic_id.clone()) && emitted_labels.insert(lower_label) {
+                out.push(ProjectTag {
+                    id: synthetic_id,
+                    label: folder.clone(),
+                    color: TagColor::Gray,
+                    is_auto: true,
+                    source_folder: Some(folder.clone()),
+                });
+            }
+        }
+    }
+
+    if let Some(manual_ids) = manual_tags_by_canon.get(canon_key) {
+        for tag_id in manual_ids {
+            if let Some(def) = cfg.tag_definitions.iter().find(|d| &d.id == tag_id) {
+                let lower_label = def.label.to_ascii_lowercase();
+                if emitted_ids.insert(def.id.clone()) && emitted_labels.insert(lower_label) {
+                    out.push(ProjectTag {
+                        id: def.id.clone(),
+                        label: def.label.clone(),
+                        color: def.color,
+                        is_auto: false,
+                        source_folder: None,
+                    });
+                }
+            }
+        }
+    }
+
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_projects_recursive(
+    dir: &Path,
+    root_label: &str,
+    rel_parents: Vec<String>,
+    current_depth: u8,
+    max_depth: u8,
+    mode: ProjectScanMode,
+    ignore_set: &BTreeSet<String>,
+    out: &mut Vec<(String, String, PathBuf, Vec<String>)>,
+) {
+    if current_depth >= max_depth {
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    let mut children: Vec<(String, PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            let name = e.file_name().to_str()?.to_owned();
+            if !p.is_dir() || is_ignored_dir(&name, ignore_set) {
+                return None;
+            }
+            Some((name, p))
+        })
+        .collect();
+    children.sort_by_key(|a| a.0.to_lowercase());
+
+    let next_depth = current_depth + 1;
+    for (name, path) in children {
+        let is_match = match mode {
+            ProjectScanMode::ExactDepth => next_depth == max_depth,
+            ProjectScanMode::AutoDetect => config::directory_looks_like_project(&path),
+        };
+
+        if is_match {
+            let category = if rel_parents.is_empty() {
+                root_label.to_owned()
+            } else {
+                rel_parents.join(" / ")
+            };
+            let ancestor_folders = if rel_parents.is_empty() {
+                vec![root_label.to_owned()]
+            } else {
+                rel_parents.clone()
+            };
+            out.push((category, name, path, ancestor_folders));
+            continue;
+        }
+
+        if next_depth < max_depth {
+            let mut next_parents = rel_parents.clone();
+            next_parents.push(name);
+            collect_projects_recursive(
+                &path,
+                root_label,
+                next_parents,
+                next_depth,
+                max_depth,
+                mode,
+                ignore_set,
+                out,
+            );
+        }
+    }
 }
 
 fn is_ignored_dir(name: &str, ignore_set: &BTreeSet<String>) -> bool {
     name.starts_with('.') || ignore_set.contains(&name.to_ascii_lowercase())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_project_summary(
     name: &str,
     category: &str,
     path: &Path,
     is_pinned: bool,
+    is_hidden: bool,
+    ancestor_folders: Vec<String>,
+    tags: Vec<ProjectTag>,
+    active_set_ids: Vec<String>,
     snap: &ScopeSnapshot,
 ) -> ProjectSummary {
     let project_extra_tokens = snap.budget.rules_project + snap.budget.skills_mcp_project;
@@ -1521,7 +2055,11 @@ fn build_project_summary(
         category: category.to_owned(),
         path: path.to_string_lossy().into_owned(),
         is_pinned,
+        is_hidden,
         has_git: path.join(".git").exists(),
+        ancestor_folders,
+        tags,
+        active_set_ids,
         effective_tokens: snap.budget.effective_total,
         project_extra_tokens,
         active_project_skills_count,
@@ -1544,6 +2082,12 @@ fn scan_project_with_baseline(
         global_snapshot,
     } = *ctx;
     let adapters = enabled_adapters(cfg.active_agents);
+    let agent_roots = config::resolve_agent_roots(cfg, home);
+    let ref_depth = if cfg.reference_scan_depth == 0 {
+        DEFAULT_REFERENCE_SCAN_DEPTH
+    } else {
+        cfg.reference_scan_depth.clamp(1, 10)
+    };
     let mut warnings = Vec::new();
 
     // 1. Skills: clone baseline items and overlay project installations
@@ -1579,6 +2123,9 @@ fn scan_project_with_baseline(
                     TargetResolution::BrokenSymlink { target } => {
                         let installed = InstalledPathInfo {
                             agent,
+                            scope: ScopeType::Project,
+                            target: target.clone(),
+                            upfront_tokens: None,
                             path: entry_path.to_string_lossy().into_owned(),
                             is_symlink: true,
                             is_legacy: dir_spec.is_legacy,
@@ -1618,6 +2165,9 @@ fn scan_project_with_baseline(
                         }
                         let installed = InstalledPathInfo {
                             agent,
+                            scope: ScopeType::Project,
+                            target: canonical.to_string_lossy().into_owned(),
+                            upfront_tokens: map_skill_tokens(&skill_map, &slug, &canonical, &skill_md),
                             path: entry_path.to_string_lossy().into_owned(),
                             is_symlink,
                             is_legacy: dir_spec.is_legacy,
@@ -1630,7 +2180,7 @@ fn scan_project_with_baseline(
                             push_unique_agent(&mut existing.active_agents, agent);
                             existing.installed_paths.push(installed);
                         } else if let Some(parsed) =
-                            parse_skill_from_disk(&slug, &canonical, &skill_md)
+                            parse_skill_from_disk(&slug, &canonical, &skill_md, ref_depth)
                         {
                             let source = attribute_library_source(&canonical, library)
                                 .unwrap_or(SkillSource::ProjectOnly);
@@ -1688,9 +2238,9 @@ fn scan_project_with_baseline(
             }
         }
         if agent == AgentKind::Claude {
-            let claude_json = home.join(".claude.json");
+            let claude_json = &agent_roots.claude_json;
             if claude_json.is_file() {
-                let parsed = parse_mcp_file(&claude_json, agent, Some(project_path), &mut warnings);
+                let parsed = parse_mcp_file(claude_json, agent, Some(project_path), &mut warnings);
                 if let Some(sink) = discovered_mcp.as_deref_mut() {
                     collect_catalog_entries(&parsed, sink);
                 }
@@ -1746,6 +2296,7 @@ fn scan_project_with_baseline(
         .map(|r| r.upfront_tokens)
         .sum();
     let skills_global = global_snapshot.budget.skills_global;
+    let plugins_global = global_snapshot.budget.plugins_global;
     let skills_project: usize = skills
         .iter()
         .filter(|s| s.active_in_project && !s.active_globally)
@@ -1758,7 +2309,7 @@ fn scan_project_with_baseline(
         .map(|m| m.upfront_tokens)
         .sum();
 
-    let skills_mcp_global = skills_global + mcp_global;
+    let skills_mcp_global = skills_global + plugins_global + mcp_global;
     let skills_mcp_project = skills_project + mcp_project;
     let rules_total = rules_global + rules_project;
     let skills_mcp_total = skills_mcp_global + skills_mcp_project;
@@ -1781,6 +2332,7 @@ fn scan_project_with_baseline(
             rules_limit: TOKEN_BUDGET_LIMIT,
             skills_global,
             skills_project,
+            plugins_global,
             mcp_global,
             mcp_project,
             skills_mcp_global,
@@ -1790,6 +2342,7 @@ fn scan_project_with_baseline(
             effective_total: rules_total + skills_mcp_total,
         },
         skills,
+        plugins: global_snapshot.plugins.clone(),
         unmanaged_global_skills_count: 0,
         mcp_servers,
         rules,
@@ -1999,24 +2552,23 @@ mod tests {
 
         let cfg = AppConfig {
             projects_root: Some(projects_root.to_string_lossy().into_owned()),
-            library_sources: vec![LibrarySource {
+            library_sources: vec![crate::models::LibrarySource {
                 id: "obsidian".to_owned(),
                 label: "Obsidian".to_owned(),
                 path: vault_skills.to_string_lossy().into_owned(),
+                depth: 2,
             }],
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
             ignore_folders: vec!["_archive".to_owned(), "node_modules".to_owned()],
             active_agents: ActiveAgents {
                 antigravity: true,
                 codex: true,
                 claude: false,
             },
-            git_hygiene: true,
+            ..AppConfig::default()
         };
 
         let catalog = McpCatalog::default();
-        let library = scan_libraries(&cfg.library_sources);
+        let library = scan_libraries(&cfg, &home);
         let global = scan_global_scope(&cfg, &home, &library, &catalog, None);
 
         assert_eq!(global.skills.len(), 3);
@@ -2103,18 +2655,14 @@ mod tests {
 
         let cfg = AppConfig {
             projects_root: Some(projects_root.to_string_lossy().into_owned()),
-            library_sources: Vec::new(),
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
             ignore_folders: vec!["_archive".to_owned()],
-            active_agents: ActiveAgents::default(),
-            git_hygiene: true,
+            ..AppConfig::default()
         };
 
         let catalog = McpCatalog::default();
-        let library = scan_libraries(&cfg.library_sources);
+        let library = scan_libraries(&cfg, &home);
         let global = scan_global_scope(&cfg, &home, &library, &catalog, None);
-        let categories = discover_projects(&cfg, &home, &library, &catalog, &global);
+        let (categories, _) = discover_projects(&cfg, &home, &library, &catalog, &global);
 
         assert_eq!(categories.len(), 1);
         assert_eq!(categories[0].name, "Clients");
@@ -2163,7 +2711,164 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "live filesystem diagnostic against Peter's local directories"]
+    fn scans_multi_root_depths_auto_detect_and_nested_libraries() {
+        let tmp = TempDir::new().expect("temp dir");
+        let root = tmp.path();
+        let home = root.join("home");
+        fs::create_dir_all(&home).expect("home");
+
+        // Flat depth-1 projects
+        let code_dir = home.join("Code");
+        fs::create_dir_all(code_dir.join("solo-cli")).expect("solo-cli");
+
+        // Mixed-depth auto-detect root (level 1 git repo + level 3 nested git repo)
+        let work_dir = root.join("Work");
+        fs::create_dir_all(work_dir.join("direct-service/.git")).expect("direct");
+        fs::create_dir_all(work_dir.join("Platform/Core/gateway/.git")).expect("nested");
+        fs::create_dir_all(work_dir.join("Platform/Core/gateway/subcrate")).expect("inside repo");
+
+        // Nested library (depth 2: category/skill/SKILL.md) + custom agent root
+        let lib_dir = root.join("TeamLibrary");
+        make_skill(
+            &lib_dir.join("frontend/react-helper"),
+            "react-helper",
+            "React guidance.",
+            "Body",
+        );
+        let custom_codex = root.join("custom-codex");
+        fs::create_dir_all(&custom_codex).expect("custom codex");
+        fs::write(custom_codex.join("AGENTS.md"), "Custom codex instructions.").expect("AGENTS");
+
+        let cfg = AppConfig {
+            project_roots: vec![
+                crate::models::ProjectRoot {
+                    id: "code".to_owned(),
+                    label: "Code".to_owned(),
+                    path: "~/Code".to_owned(),
+                    depth: 1,
+                    mode: ProjectScanMode::ExactDepth,
+                },
+                crate::models::ProjectRoot {
+                    id: "work".to_owned(),
+                    label: "Work".to_owned(),
+                    path: work_dir.to_string_lossy().into_owned(),
+                    depth: 4,
+                    mode: ProjectScanMode::AutoDetect,
+                },
+            ],
+            library_sources: vec![crate::models::LibrarySource {
+                id: "team".to_owned(),
+                label: "Team".to_owned(),
+                path: lib_dir.to_string_lossy().into_owned(),
+                depth: 2,
+            }],
+            agent_paths: crate::models::AgentPaths {
+                codex_dir: Some(custom_codex.to_string_lossy().into_owned()),
+                ..crate::models::AgentPaths::default()
+            },
+            ..AppConfig::default()
+        };
+
+        let catalog = McpCatalog::default();
+        let library = scan_libraries(&cfg, &home);
+        assert!(library.skills.contains_key("react-helper"));
+
+        let global = scan_global_scope(&cfg, &home, &library, &catalog, None);
+        assert!(global.rules.iter().any(|r| r.filename == "AGENTS.md"));
+
+        let (categories, _) = discover_projects(&cfg, &home, &library, &catalog, &global);
+        assert_eq!(categories.len(), 3);
+        assert!(categories.iter().any(|c| c.name == "Code"
+            && c.projects.len() == 1
+            && c.projects[0].name == "solo-cli"));
+        assert!(categories.iter().any(|c| c.name == "Work"
+            && c.projects.len() == 1
+            && c.projects[0].name == "direct-service"));
+        assert!(categories.iter().any(|c| c.name == "Platform / Core"
+            && c.projects.len() == 1
+            && c.projects[0].name == "gateway"));
+    }
+
+    #[test]
+    fn auto_tags_from_ancestors_propagate_edits_and_support_hidden_and_muted() {
+        let tmp = TempDir::new().expect("temp dir");
+        let root = tmp.path();
+        let home = root.join("home");
+        fs::create_dir_all(&home).expect("home");
+
+        let work_dir = root.join("Work");
+        let p1 = work_dir.join("ClientA/alpha");
+        let p2 = work_dir.join("ClientA/beta");
+        fs::create_dir_all(p1.join(".git")).expect("p1");
+        fs::create_dir_all(p2.join(".git")).expect("p2");
+
+        let mut cfg = AppConfig {
+            project_roots: vec![crate::models::ProjectRoot {
+                id: "work".to_owned(),
+                label: "Work".to_owned(),
+                path: work_dir.to_string_lossy().into_owned(),
+                depth: 3,
+                mode: ProjectScanMode::AutoDetect,
+            }],
+            ..AppConfig::default()
+        };
+
+        let catalog = McpCatalog::default();
+        let library = scan_libraries(&cfg, &home);
+        let global = scan_global_scope(&cfg, &home, &library, &catalog, None);
+
+        // Initial auto-tag from folder 'ClientA'
+        let (cats1, folders1) = discover_projects(&cfg, &home, &library, &catalog, &global);
+        assert!(folders1.iter().any(|f| f == "ClientA"));
+        assert_eq!(cats1[0].projects[0].tags.len(), 1);
+        assert_eq!(cats1[0].projects[0].tags[0].label, "ClientA");
+        assert!(cats1[0].projects[0].tags[0].is_auto);
+
+        // Edit auto-tag rule in settings + hide beta + mute alpha's auto tag on a manual check
+        cfg.tag_definitions.push(crate::models::TagDefinition {
+            id: "auto:clienta".to_owned(),
+            label: "Enterprise Clients".to_owned(),
+            color: TagColor::Orange,
+            auto_folder: Some("ClientA".to_owned()),
+            hidden: false,
+        });
+        cfg.tag_definitions.push(crate::models::TagDefinition {
+            id: "manual:priority".to_owned(),
+            label: "Priority".to_owned(),
+            color: TagColor::Red,
+            auto_folder: None,
+            hidden: false,
+        });
+        let p1_key = config::canonical_path_key(&home, &p1.to_string_lossy());
+        cfg.project_manual_tags
+            .insert(p1_key, vec!["manual:priority".to_owned()]);
+        config::toggle_hidden_project_in_config(&mut cfg, &home, &p2.to_string_lossy())
+            .expect("hide beta");
+
+        // Create a new project later under ClientA -> automatically inherits edited tag
+        let p3 = work_dir.join("ClientA/gamma");
+        fs::create_dir_all(p3.join(".git")).expect("p3");
+
+        let (cats2, _) = discover_projects(&cfg, &home, &library, &catalog, &global);
+        let projects = &cats2[0].projects;
+        let alpha = projects.iter().find(|p| p.name == "alpha").expect("alpha");
+        let beta = projects.iter().find(|p| p.name == "beta").expect("beta");
+        let gamma = projects.iter().find(|p| p.name == "gamma").expect("gamma");
+
+        assert!(!alpha.is_hidden);
+        assert!(beta.is_hidden);
+        assert_eq!(alpha.tags.len(), 2);
+        assert_eq!(alpha.tags[0].label, "Enterprise Clients");
+        assert_eq!(alpha.tags[0].color, TagColor::Orange);
+        assert_eq!(alpha.tags[1].label, "Priority");
+        assert!(!alpha.tags[1].is_auto);
+        assert_eq!(gamma.tags.len(), 1);
+        assert_eq!(gamma.tags[0].label, "Enterprise Clients");
+        assert_eq!(gamma.tags[0].color, TagColor::Orange);
+    }
+
+    #[test]
+    #[ignore = "live filesystem diagnostic against local directories"]
     fn live_filesystem_diagnostic() {
         let cfg = config::load_config().expect("load live config");
         let overview = scan_workspace(&cfg).expect("scan live workspace");

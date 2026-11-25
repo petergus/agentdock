@@ -312,10 +312,11 @@ fn primary_skill_targets(
 ) -> Vec<TargetEntry> {
     match scope {
         ToggleScope::Global => {
+            let roots = crate::config::resolve_agent_roots(cfg, home);
             let mut seen_parents = BTreeSet::new();
             let mut out = Vec::new();
             for adapter in enabled_adapters(cfg.active_agents) {
-                for spec in adapter.global_skill_dirs(home) {
+                for spec in adapter.global_skill_dirs(&roots) {
                     if spec.is_legacy {
                         continue;
                     }
@@ -355,10 +356,11 @@ fn all_skill_targets(
 ) -> Vec<TargetEntry> {
     match scope {
         ToggleScope::Global => {
+            let roots = crate::config::resolve_agent_roots(cfg, home);
             let mut seen_paths = BTreeSet::new();
             let mut out = Vec::new();
             for adapter in enabled_adapters(cfg.active_agents) {
-                for spec in adapter.global_skill_dirs(home) {
+                for spec in adapter.global_skill_dirs(&roots) {
                     let candidate = spec.path.join(skill_id);
                     if seen_paths.insert(candidate.clone()) {
                         out.push(TargetEntry {
@@ -411,10 +413,14 @@ fn primary_rule_targets(
 ) -> Vec<TargetEntry> {
     match scope {
         ToggleScope::Global => {
+            let roots = crate::config::resolve_agent_roots(cfg, home);
             let mut out = Vec::new();
             if cfg.active_agents.antigravity {
                 out.push(TargetEntry {
-                    path: home.join(".gemini/config/rules").join(rule_filename),
+                    path: roots
+                        .antigravity_dir
+                        .join("config/rules")
+                        .join(rule_filename),
                     git_relative: None,
                 });
             }
@@ -438,16 +444,22 @@ fn primary_rule_targets(
 }
 
 fn all_rule_targets(
-    _cfg: &AppConfig,
+    cfg: &AppConfig,
     home: &Path,
     scope: &ToggleScope,
     rule_filename: &str,
 ) -> Vec<TargetEntry> {
     match scope {
-        ToggleScope::Global => vec![TargetEntry {
-            path: home.join(".gemini/config/rules").join(rule_filename),
-            git_relative: None,
-        }],
+        ToggleScope::Global => {
+            let roots = crate::config::resolve_agent_roots(cfg, home);
+            vec![TargetEntry {
+                path: roots
+                    .antigravity_dir
+                    .join("config/rules")
+                    .join(rule_filename),
+                git_relative: None,
+            }]
+        }
         ToggleScope::Project { project_path } => {
             let project = Path::new(project_path);
             vec![
@@ -466,6 +478,52 @@ fn all_rule_targets(
             ]
         }
     }
+}
+
+/// Inspects the same project link targets used by the switchboard writers.
+pub(crate) fn preview_set_links(
+    cfg: &AppConfig,
+    home: &Path,
+    scope: &ToggleScope,
+    entry: &str,
+    is_rule: bool,
+    canonical: Option<&Path>,
+) -> Result<Vec<(PathBuf, Option<PathBuf>)>, AppError> {
+    validate_entry_name(entry)?;
+    let enabling = canonical.is_some();
+    let targets = match (is_rule, enabling) {
+        (true, true) => primary_rule_targets(cfg, home, scope, entry),
+        (true, false) => all_rule_targets(cfg, home, scope, entry),
+        (false, true) => primary_skill_targets(cfg, home, scope, entry),
+        (false, false) => all_skill_targets(cfg, home, scope, entry),
+    };
+    let desired = canonical.map(|path| fs::canonicalize(path).map_err(|err| AppError::io(path, err))).transpose()?;
+    let mut changes = Vec::new();
+    for target in targets {
+        match fs::symlink_metadata(&target.path) {
+            Ok(meta) if meta.is_symlink() => {
+                if desired.is_none() || fs::canonicalize(&target.path).ok() != desired {
+                    let old = fs::read_link(&target.path).map_err(|err| AppError::io(&target.path, err))?;
+                    changes.push((target.path, Some(old)));
+                }
+            }
+            Ok(_) => return Err(AppError::InvalidPath(format!(
+                "A real file or directory occupies {}", target.path.display()
+            ))),
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                if enabling {
+                    if let Some(parent) = target.path.ancestors().skip(1).find(|p| p.exists()) {
+                        if !parent.is_dir() {
+                            return Err(AppError::InvalidPath(format!("{} is not a directory", parent.display())));
+                        }
+                    }
+                    changes.push((target.path, None));
+                }
+            }
+            Err(err) => return Err(AppError::io(&target.path, err)),
+        }
+    }
+    Ok(changes)
 }
 
 #[cfg(test)]
@@ -503,16 +561,14 @@ mod tests {
                 id: "obsidian".to_owned(),
                 label: "Obsidian".to_owned(),
                 path: vault_skills.to_string_lossy().into_owned(),
+                depth: 2,
             }],
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
-            ignore_folders: Vec::new(),
             active_agents: ActiveAgents {
                 antigravity: true,
                 codex: true,
                 claude: false,
             },
-            git_hygiene: true,
+            ..AppConfig::default()
         };
 
         let scope = ToggleScope::Project {
@@ -577,15 +633,7 @@ mod tests {
         let real_skill = home.join(".agents/skills/rogue-pack");
         make_skill_dir(&real_skill, "rogue-pack", "Real unmanaged folder.");
 
-        let cfg = AppConfig {
-            projects_root: None,
-            library_sources: Vec::new(),
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
-            ignore_folders: Vec::new(),
-            active_agents: ActiveAgents::default(),
-            git_hygiene: true,
-        };
+        let cfg = AppConfig::default();
 
         let outcome = toggle_skill(
             &cfg,

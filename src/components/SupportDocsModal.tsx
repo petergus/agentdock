@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FileText, FolderOpen, X } from 'lucide-react';
 import type { SupportDocMode, SupportDocTargetFile } from '@/types';
 import { api } from '@/lib/api';
+import { MacSelect } from '@/components/ui/MacSelect';
 
 interface SupportDocsModalProps {
   open: boolean;
@@ -122,19 +123,19 @@ export function SupportDocsModal({
         }
         pressedOutsideRef.current = false;
       }}
-      className="m-auto w-[560px] max-w-[calc(100vw-48px)] overflow-hidden rounded-[12px] border border-[var(--hairline)] bg-[var(--bg-content)] p-0 text-[var(--text-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.28)]"
+      className="mac-sheet m-auto w-[560px] max-w-[calc(100vw-48px)] overflow-hidden p-0"
     >
       <form onSubmit={handleSubmit} className="flex flex-col">
-        <div className="flex items-center justify-between border-b border-[var(--hairline)] px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-[var(--hairline)] bg-[var(--bg-toolbar)] px-5 py-3.5 backdrop-blur-xl">
           <div>
             <h2
               id="support-docs-modal-title"
-              className="text-[15px] font-semibold"
+              className="text-[14px] font-semibold"
             >
               Link Support Docs
             </h2>
             <p className="text-[12px] text-[var(--text-secondary)]">
-              Reference external Obsidian notes or spec folders without copying files.
+              Reference external notes, specs, or documentation folders without copying files.
             </p>
           </div>
           <button
@@ -157,24 +158,24 @@ export function SupportDocsModal({
           <div className="space-y-1.5">
             <label
               htmlFor="support-doc-source-input"
-              className="block text-[12.5px] font-medium text-[var(--text-primary)]"
+              className="block px-1 text-[12px] font-semibold text-[var(--text-secondary)]"
             >
               External File or Folder
             </label>
-            <div className="flex gap-2">
+            <div className="mac-group flex gap-2 p-2.5">
               <input
                 id="support-doc-source-input"
                 type="text"
                 autoFocus
                 value={sourcePath}
                 onChange={(e) => setSourcePath(e.target.value)}
-                placeholder={supportDocsRoot ?? '/Users/peter/BRAIN-LOCAL/...'}
-                className="mono-path h-8 flex-1 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px]"
+                placeholder={supportDocsRoot ?? '/path/to/notes-or-docs'}
+                className="mac-input mono-path h-8 flex-1 px-2.5 text-[12px]"
               />
               <button
                 type="button"
                 onClick={handlePickFolder}
-                className="inline-flex h-8 items-center gap-1 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px] font-medium hover:bg-[var(--bg-hover)]"
+                className="mac-btn inline-flex h-8 items-center gap-1 px-2.5 text-[12px] font-medium"
               >
                 <FolderOpen className="h-3.5 w-3.5" strokeWidth={1.75} />
                 Folder…
@@ -182,7 +183,7 @@ export function SupportDocsModal({
               <button
                 type="button"
                 onClick={handlePickFile}
-                className="inline-flex h-8 items-center gap-1 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px] font-medium hover:bg-[var(--bg-hover)]"
+                className="mac-btn inline-flex h-8 items-center gap-1 px-2.5 text-[12px] font-medium"
               >
                 <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
                 File…
@@ -190,12 +191,12 @@ export function SupportDocsModal({
             </div>
           </div>
 
-          <div className="space-y-2.5">
-            <span className="block text-[12.5px] font-medium text-[var(--text-primary)]">
+          <div className="space-y-2">
+            <span className="block px-1 text-[12px] font-semibold text-[var(--text-secondary)]">
               Link Mode
             </span>
 
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-[var(--hairline)] bg-[var(--bg-elevated)] p-3">
+            <label className="mac-group flex cursor-pointer items-start gap-2.5 p-3">
               <input
                 type="radio"
                 name="support-doc-mode"
@@ -215,13 +216,14 @@ export function SupportDocsModal({
 
                 {mode === 'pointer' && (
                   <div className="space-y-2 pt-1">
-                    <select
+                    <MacSelect
+                      size="sm"
                       aria-label="Target pointer file"
                       value={targetFile}
                       onChange={(e) =>
                         setTargetFile(e.target.value as SupportDocTargetFile)
                       }
-                      className="h-7 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-2 text-[12px]"
+                      className="w-full"
                     >
                       <option value="agentsMd">
                         Embed in AGENTS.md (AGENTDOCK:SUPPORT_DOCS block)
@@ -229,21 +231,21 @@ export function SupportDocsModal({
                       <option value="supportDocsRule">
                         Create .agents/rules/support-docs.md (model_decision)
                       </option>
-                    </select>
+                    </MacSelect>
                     <input
                       type="text"
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="Optional 1-line hint (e.g. Client brand specs & API notes)"
                       aria-label="Support doc description"
-                      className="h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-2.5 text-[12.5px]"
+                      className="mac-input h-8 w-full px-2.5 text-[12.5px]"
                     />
                   </div>
                 )}
               </div>
             </label>
 
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-[8px] border border-[var(--hairline)] bg-[var(--bg-elevated)] p-3">
+            <label className="mac-group flex cursor-pointer items-start gap-2.5 p-3">
               <input
                 type="radio"
                 name="support-doc-mode"
@@ -262,18 +264,18 @@ export function SupportDocsModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--hairline)] bg-[var(--bg-elevated)] px-5 py-3">
+        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--hairline)] bg-[var(--bg-toolbar)] px-5 py-3 backdrop-blur-xl">
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
-            className="h-8 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-3.5 text-[12.5px] font-medium hover:bg-[var(--bg-hover)]"
+            className="mac-btn h-8 px-3.5 text-[12.5px] font-medium"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="h-8 rounded-[6px] bg-[var(--accent)] px-4 text-[12.5px] font-medium text-[var(--accent-text)] hover:opacity-90 disabled:opacity-60"
+            className="mac-btn-primary h-8 px-4 text-[12.5px] font-medium disabled:opacity-60"
           >
             {saving ? 'Linking…' : 'Link Support Doc'}
           </button>

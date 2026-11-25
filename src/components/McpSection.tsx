@@ -8,6 +8,15 @@ import {
 } from '@/lib/format';
 import { MacSwitch } from '@/components/ui/MacSwitch';
 
+const probeDate = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+export function mcpRowId(name: string): string {
+  return `mcp-server-${encodeURIComponent(name)}`;
+}
+
 interface McpSectionProps {
   scopeType: ScopeType;
   servers: McpServerItem[];
@@ -52,7 +61,7 @@ export function McpSection({
         <button
           type="button"
           onClick={onOpenAddMcp}
-          className="inline-flex h-7 items-center gap-1 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          className="mac-btn inline-flex h-7 items-center gap-1 px-2.5 text-[12px] font-medium"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
           Add MCP
@@ -60,7 +69,7 @@ export function McpSection({
       </div>
 
       {visibleServers.length === 0 ? (
-        <div className="rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-4 py-6 text-center text-[12.5px] text-[var(--text-secondary)]">
+        <div className="mac-group px-4 py-6 text-center text-[12.5px] text-[var(--text-secondary)]">
           <Server
             className="mx-auto mb-1.5 h-4 w-4 text-[var(--text-tertiary)]"
             strokeWidth={1.6}
@@ -69,7 +78,7 @@ export function McpSection({
           No MCP servers discovered for the selected scope and agent filter.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[10px] border border-[var(--hairline)] bg-[var(--bg-content)]">
+        <div className="mac-group overflow-hidden">
           {visibleServers.map((server, idx) => {
             const isInheritedGlobal =
               scopeType === 'project' &&
@@ -92,9 +101,11 @@ export function McpSection({
             return (
               <div
                 key={server.name}
+                id={mcpRowId(server.name)}
+                tabIndex={-1}
                 className={[
-                  'flex min-h-[42px] items-center justify-between gap-3 px-3.5 py-1.5 hover:bg-[var(--bg-hover)]',
-                  idx > 0 ? 'border-t border-[var(--hairline)]' : '',
+                  'flex min-h-[42px] items-center justify-between gap-3 px-4 py-1.5 transition-colors duration-100 hover:bg-[var(--bg-hover)] focus:bg-[var(--bg-hover)] focus-visible:outline-offset-[-2px]',
+                  idx > 0 ? 'mac-row-divider' : '',
                 ].join(' ')}
               >
                 <div className="min-w-0 flex-1">
@@ -104,7 +115,7 @@ export function McpSection({
                     </span>
                     {server.definedGloballyCollision && (
                       <span
-                        title="Antigravity MCP collision guard: already active globally; global server takes precedence"
+                        title="Already active globally — Antigravity uses the Global copy, so turning off the project override removes redundant config."
                         className="shrink-0 text-[11.5px] font-medium text-[var(--status-amber)]"
                       >
                         Defined Globally
@@ -124,6 +135,13 @@ export function McpSection({
                       {subtitle}
                     </div>
                   )}
+                  {(server.activeGlobally || server.activeInProject) && (
+                    <div className="text-[11.5px] text-[var(--text-secondary)]">
+                      {server.probedAtMs == null
+                        ? 'Configured · No successful probe recorded'
+                        : `Configured · Last successful probe ${probeDate.format(server.probedAtMs)}`}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
@@ -141,12 +159,12 @@ export function McpSection({
                     aria-label={`Probe tools schema for ${server.name}`}
                     title={
                       !canProbe
-                        ? 'Only stdio MCP servers can be probed locally'
+                        ? 'Only local stdio MCP servers can be measured automatically'
                         : isProbing
-                          ? 'Probing live stdio tools/list schema…'
+                          ? 'Measuring startup tool schema tokens…'
                           : server.toolCount !== null
-                            ? `Re-probe stdio tools/list (${server.toolCount} tools, ${formatTokensExact(server.upfrontTokens)} tok)`
-                            : 'Probe live stdio tools/list schema (5s timeout)'
+                            ? `Re-measure startup tokens (${server.toolCount} tools, ${formatTokensExact(server.upfrontTokens)} tok)`
+                            : 'Measure exact startup token cost by querying this server’s tool list (5s timeout)'
                     }
                     onClick={() => onProbeMcp(server)}
                     className={[

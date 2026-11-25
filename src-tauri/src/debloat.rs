@@ -225,8 +225,9 @@ fn scope_skill_candidate_paths(
 
     match scope {
         ToggleScope::Global => {
+            let roots = crate::config::resolve_agent_roots(cfg, home);
             for adapter in enabled_adapters(cfg.active_agents) {
-                for spec in adapter.global_skill_dirs(home) {
+                for spec in adapter.global_skill_dirs(&roots) {
                     let candidate = spec.path.join(skill_id);
                     if seen.insert(candidate.clone()) {
                         out.push(candidate);
@@ -332,17 +333,12 @@ mod tests {
         symlink(&real_skill, &secondary_link).expect("secondary symlink");
 
         let cfg = AppConfig {
-            projects_root: None,
-            library_sources: Vec::new(),
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
-            ignore_folders: Vec::new(),
             active_agents: ActiveAgents {
                 antigravity: true,
                 codex: true,
                 claude: false,
             },
-            git_hygiene: true,
+            ..AppConfig::default()
         };
 
         let ids = vec!["rogue-tool".to_owned()];

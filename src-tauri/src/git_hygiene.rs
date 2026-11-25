@@ -89,6 +89,19 @@ pub fn sync_git_exclude(
     backup::atomic_write_string(&exclude_path, &next_content)
 }
 
+/// Returns all AgentDock-managed entries currently present in `<project>/.git/info/exclude`.
+#[must_use]
+pub fn read_managed_exclude_entries(project_path: &Path) -> Vec<String> {
+    let Some(exclude_path) = resolve_git_exclude_path(project_path) else {
+        return Vec::new();
+    };
+    let Ok(existing) = fs::read_to_string(&exclude_path) else {
+        return Vec::new();
+    };
+    let (_, managed) = parse_exclude_sections(&existing);
+    managed.into_iter().collect()
+}
+
 fn normalize_exclude_entry(raw: &str) -> String {
     raw.trim().trim_start_matches("./").to_owned()
 }

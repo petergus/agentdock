@@ -401,20 +401,11 @@ fn strip_block(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ActiveAgents;
     use crate::scanner;
     use tempfile::TempDir;
 
     fn test_config() -> AppConfig {
-        AppConfig {
-            projects_root: None,
-            library_sources: Vec::new(),
-            support_docs_root: None,
-            pinned_projects: Vec::new(),
-            ignore_folders: Vec::new(),
-            active_agents: ActiveAgents::default(),
-            git_hygiene: true,
-        }
+        AppConfig::default()
     }
 
     #[test]

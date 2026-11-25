@@ -15,6 +15,41 @@ pub const DEFAULT_MCP_ESTIMATE_TOKENS: usize = 800;
 /// Character threshold above which a skill description triggers an amber length warning.
 pub const DESCRIPTION_WARNING_CHARS: usize = 200;
 
+/// Default directory depth for project discovery under a root folder (`category/project`).
+pub const DEFAULT_PROJECT_SCAN_DEPTH: u8 = 2;
+
+/// Default recursive folder depth for library skill/rule discovery.
+pub const DEFAULT_LIBRARY_SCAN_DEPTH: u8 = 2;
+
+/// Default max folder depth when counting markdown files inside `<skill>/references/`.
+pub const DEFAULT_REFERENCE_SCAN_DEPTH: u8 = 3;
+
+const fn default_project_scan_depth() -> u8 {
+    DEFAULT_PROJECT_SCAN_DEPTH
+}
+
+const fn default_library_scan_depth() -> u8 {
+    DEFAULT_LIBRARY_SCAN_DEPTH
+}
+
+const fn default_reference_scan_depth() -> u8 {
+    DEFAULT_REFERENCE_SCAN_DEPTH
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+fn default_ignore_folders() -> Vec<String> {
+    vec![
+        ".git".to_owned(),
+        "node_modules".to_owned(),
+        "_archive".to_owned(),
+        "Archive".to_owned(),
+        ".DS_Store".to_owned(),
+    ]
+}
+
 /// Supported AI coding agents managed by AgentDock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,26 +90,248 @@ impl ActiveAgents {
     }
 }
 
-/// A canonical library root (e.g. an Obsidian vault subfolder) holding skills and rules.
+/// How a configured project root discovers repositories underneath it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectScanMode {
+    /// Discover every non-ignored folder at the exact `depth` below the root.
+    #[default]
+    ExactDepth,
+    /// Descend up to `depth` levels and stop descending once project markers are found.
+    AutoDetect,
+}
+
+/// Configured directory root scanned for project workspaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRoot {
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    pub path: String,
+    #[serde(default = "default_project_scan_depth")]
+    pub depth: u8,
+    #[serde(default)]
+    pub mode: ProjectScanMode,
+}
+
+/// Optional custom global config directory overrides per coding agent.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPaths {
+    #[serde(default)]
+    pub antigravity_dir: Option<String>,
+    #[serde(default)]
+    pub codex_dir: Option<String>,
+    #[serde(default)]
+    pub claude_dir: Option<String>,
+}
+
+/// A canonical library root holding reusable skills and rules.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LibrarySource {
     pub id: String,
     pub label: String,
     pub path: String,
+    #[serde(default = "default_library_scan_depth")]
+    pub depth: u8,
+}
+
+/// Reference to a globally paused skill so it can be restored accurately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PausedSkillRef {
+    pub skill_id: String,
+    pub canonical_skill_dir: String,
+}
+
+/// Reference to a globally paused library rule so it can be restored accurately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PausedRuleRef {
+    pub rule_filename: String,
+    pub canonical_rule_file: String,
+}
+
+/// Reference to a globally paused plugin so it can be restored accurately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PausedPluginRef {
+    pub agent: AgentKind,
+    pub plugin_id: String,
+}
+
+/// Persisted pause/restore snapshot for global quick switches.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalPauseState {
+    #[serde(default)]
+    pub skills_paused: bool,
+    #[serde(default)]
+    pub paused_skills: Vec<PausedSkillRef>,
+    #[serde(default)]
+    pub plugins_paused: bool,
+    #[serde(default)]
+    pub paused_plugins: Vec<PausedPluginRef>,
+    #[serde(default)]
+    pub mcp_paused: bool,
+    #[serde(default)]
+    pub paused_mcp: Vec<String>,
+    #[serde(default)]
+    pub rules_paused: bool,
+    #[serde(default)]
+    pub paused_rules: Vec<PausedRuleRef>,
+}
+
+/// Target bucket for global pause/restore switches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GlobalSwitchTarget {
+    All,
+    Skills,
+    Plugins,
+    Mcp,
+}
+
+/// Summary returned after toggling a global quick switch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchToggleResult {
+    pub changed_count: usize,
+    pub skipped_unmanaged: Vec<String>,
+    pub warnings: Vec<String>,
+    pub pause_state: GlobalPauseState,
+}
+
+/// Reusable bundle of skills, MCP servers, and library rules toggled per project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextSet {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub skill_ids: Vec<String>,
+    #[serde(default)]
+    pub mcp_names: Vec<String>,
+    #[serde(default)]
+    pub rule_filenames: Vec<String>,
+}
+
+/// Outcome returned when toggling a context set on or off for a project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetToggleResult {
+    pub applied_count: usize,
+    pub skipped_shared_count: usize,
+    pub warnings: Vec<String>,
+    pub active_set_ids: Vec<String>,
+}
+
+/// Finder-style tag color options.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TagColor {
+    #[default]
+    Gray,
+    Blue,
+    Green,
+    Orange,
+    Red,
+    Purple,
+    Yellow,
+}
+
+/// Persisted tag definition (either a manual custom tag or an ancestor auto-tag rule).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagDefinition {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub color: TagColor,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_folder: Option<String>,
+    #[serde(default)]
+    pub hidden: bool,
+}
+
+/// Resolved tag attached to a scanned project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectTag {
+    pub id: String,
+    pub label: String,
+    pub color: TagColor,
+    pub is_auto: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_folder: Option<String>,
 }
 
 /// Persisted application configuration stored in Application Support.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub projects_root: Option<String>,
+    #[serde(default)]
+    pub project_roots: Vec<ProjectRoot>,
+    #[serde(default)]
     pub library_sources: Vec<LibrarySource>,
+    #[serde(default)]
     pub support_docs_root: Option<String>,
+    #[serde(default)]
     pub pinned_projects: Vec<String>,
+    #[serde(default = "default_ignore_folders")]
     pub ignore_folders: Vec<String>,
+    #[serde(default = "default_reference_scan_depth")]
+    pub reference_scan_depth: u8,
+    #[serde(default)]
+    pub agent_paths: AgentPaths,
+    #[serde(default)]
     pub active_agents: ActiveAgents,
+    #[serde(default = "default_true")]
     pub git_hygiene: bool,
+    #[serde(default)]
+    pub global_pause: GlobalPauseState,
+    #[serde(default)]
+    pub sets: Vec<ContextSet>,
+    #[serde(default)]
+    pub project_active_sets: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub hidden_projects: Vec<String>,
+    #[serde(default)]
+    pub tag_definitions: Vec<TagDefinition>,
+    #[serde(default)]
+    pub project_manual_tags: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub project_muted_auto_tags: BTreeMap<String, Vec<String>>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            projects_root: None,
+            project_roots: Vec::new(),
+            library_sources: Vec::new(),
+            support_docs_root: None,
+            pinned_projects: Vec::new(),
+            ignore_folders: default_ignore_folders(),
+            reference_scan_depth: DEFAULT_REFERENCE_SCAN_DEPTH,
+            agent_paths: AgentPaths::default(),
+            active_agents: ActiveAgents::default(),
+            git_hygiene: true,
+            global_pause: GlobalPauseState::default(),
+            sets: Vec::new(),
+            project_active_sets: BTreeMap::new(),
+            hidden_projects: Vec::new(),
+            tag_definitions: Vec::new(),
+            project_manual_tags: BTreeMap::new(),
+            project_muted_auto_tags: BTreeMap::new(),
+        }
+    }
 }
 
 /// Origin classification for a discovered skill directory.
@@ -93,6 +350,9 @@ pub enum SkillSource {
 pub struct InstalledPathInfo {
     pub agent: AgentKind,
     pub path: String,
+    pub scope: ScopeType,
+    pub target: String,
+    pub upfront_tokens: Option<usize>,
     pub is_symlink: bool,
     pub is_legacy: bool,
     pub broken: bool,
@@ -130,6 +390,16 @@ pub enum McpTransport {
     Unknown,
 }
 
+/// One agent's definition of an MCP server in a particular scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpDefinition {
+    pub agent: AgentKind,
+    pub scope: ScopeType,
+    pub path: String,
+    pub enabled: bool,
+}
+
 /// Scanned MCP server entry across agent configuration files.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,6 +417,7 @@ pub struct McpServerItem {
     pub defined_globally_collision: bool,
     pub active_agents: Vec<AgentKind>,
     pub source_configs: Vec<String>,
+    pub definitions: Vec<McpDefinition>,
 }
 
 /// Activation mode governing when a rule contributes to startup system prompt tokens.
@@ -157,6 +428,20 @@ pub enum RuleTrigger {
     ModelDecision,
     Glob,
     Invalid,
+}
+
+/// Rule discovery and trigger information for a specific agent and installation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleInstallation {
+    pub agent: AgentKind,
+    pub scope: ScopeType,
+    pub path: String,
+    pub trigger: RuleTrigger,
+    pub glob_pattern: Option<String>,
+    pub upfront_tokens: usize,
+    pub is_symlink: bool,
+    pub error: Option<String>,
 }
 
 /// Scanned rule markdown file (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, or `.agents/rules/*.md`).
@@ -180,6 +465,7 @@ pub struct RuleItem {
     pub active_agents: Vec<AgentKind>,
     pub frontmatter_error: Option<String>,
     pub is_editable_trigger: bool,
+    pub installations: Vec<RuleInstallation>,
 }
 
 /// Mode by which external support documentation is attached to a project.
@@ -201,7 +487,43 @@ pub struct SupportDocItem {
     pub exists: bool,
 }
 
-/// Token budget breakdown for the active scope (Rules vs. Skills & MCP).
+/// Summary of a skill bundled inside an agent plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginSkillInfo {
+    pub name: String,
+    pub upfront_tokens: usize,
+}
+
+/// Installed Antigravity, Codex, or Claude plugin/customization bundle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginItem {
+    pub agent: AgentKind,
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub version: Option<String>,
+    pub source: Option<String>,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manage_hint: Option<String>,
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub can_toggle: bool,
+    pub skills: Vec<PluginSkillInfo>,
+    pub agent_names: Vec<String>,
+    pub mcp_names: Vec<String>,
+    pub rule_names: Vec<String>,
+    pub skills_upfront_tokens: usize,
+    pub agents_upfront_tokens: usize,
+    pub rules_upfront_tokens: usize,
+    pub upfront_tokens: usize,
+}
+
+/// Token budget breakdown for the active scope (Rules vs. Skills, Plugins & MCP).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudgetBreakdown {
@@ -211,6 +533,7 @@ pub struct TokenBudgetBreakdown {
     pub rules_limit: usize,
     pub skills_global: usize,
     pub skills_project: usize,
+    pub plugins_global: usize,
     pub mcp_global: usize,
     pub mcp_project: usize,
     pub skills_mcp_global: usize,
@@ -229,7 +552,11 @@ pub struct ProjectSummary {
     pub category: String,
     pub path: String,
     pub is_pinned: bool,
+    pub is_hidden: bool,
     pub has_git: bool,
+    pub ancestor_folders: Vec<String>,
+    pub tags: Vec<ProjectTag>,
+    pub active_set_ids: Vec<String>,
     pub effective_tokens: usize,
     pub project_extra_tokens: usize,
     pub active_project_skills_count: usize,
@@ -263,6 +590,7 @@ pub struct ScopeSnapshot {
     pub path: Option<String>,
     pub budget: TokenBudgetBreakdown,
     pub skills: Vec<SkillItem>,
+    pub plugins: Vec<PluginItem>,
     pub unmanaged_global_skills_count: usize,
     pub mcp_servers: Vec<McpServerItem>,
     pub rules: Vec<RuleItem>,
@@ -278,6 +606,7 @@ pub struct WorkspaceOverview {
     pub global_tokens: usize,
     pub global_snapshot: ScopeSnapshot,
     pub categories: Vec<CategoryGroup>,
+    pub discovered_auto_folders: Vec<String>,
     pub last_scanned_ms: u64,
 }
 
@@ -426,4 +755,155 @@ pub struct McpProbeResult {
     pub upfront_tokens: usize,
     pub tool_count: usize,
     pub probed_at_ms: u64,
+}
+
+/// Broken symlink discovered in Global or Project agent directories.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokenSymlinkIssue {
+    pub path: String,
+    pub target: String,
+    pub scope_label: String,
+    pub project_path: Option<String>,
+    pub agent: Option<AgentKind>,
+    pub item_kind: String,
+    pub original_path: Option<String>,
+    pub original_location: Option<String>,
+}
+
+/// Loose real skill folder discovered directly inside an agent or project folder instead of a Library Source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StraySkillIssue {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub path: String,
+    pub skill_md_path: String,
+    pub scope_label: String,
+    pub project_path: Option<String>,
+    pub agents: Vec<AgentKind>,
+    pub upfront_tokens: usize,
+    pub exists_in_library: bool,
+}
+
+/// Standalone skill duplicating a skill already active inside an enabled plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateSkillIssue {
+    pub skill_name: String,
+    pub skill_id: String,
+    pub standalone_path: String,
+    pub scope_label: String,
+    pub project_path: Option<String>,
+    pub plugin_agent: AgentKind,
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub duplicate_tokens: usize,
+    pub is_symlink: bool,
+}
+
+/// Unreferenced or superseded cached plugin directory under `~/.codex/plugins/cache/`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StalePluginCacheItem {
+    pub marketplace: String,
+    pub plugin_slug: String,
+    pub version: String,
+    pub path: String,
+    pub reason: String,
+    pub size_bytes: u64,
+}
+
+/// Project `.git/info/exclude` entries managed by AgentDock whose target paths no longer exist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaleGitExcludeIssue {
+    pub project_name: String,
+    pub project_path: String,
+    pub entries: Vec<String>,
+}
+
+/// Synced Claude skill bucket directory under `~/.claude/skills/synced/`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeSyncedBucketItem {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+    pub entry_count: usize,
+}
+
+/// Category of global instruction or rule hygiene issue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstructionHygieneKind {
+    Frontmatter,
+    Oversized,
+    PausedSkillRef,
+}
+
+/// Hygiene warning for global instruction files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionHygieneIssue {
+    pub path: String,
+    pub filename: String,
+    pub agent: AgentKind,
+    pub kind: InstructionHygieneKind,
+    pub severity: String,
+    pub message: String,
+    pub tokens: usize,
+}
+
+/// Preview of a suggested template or repair for an instruction/rule hygiene issue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionFixPreview {
+    pub path: String,
+    pub canonical_path: String,
+    pub filename: String,
+    pub kind: InstructionHygieneKind,
+    pub title: String,
+    pub why: String,
+    pub what_changes: String,
+    pub current_content: String,
+    pub current_tokens: usize,
+    pub suggested_content: String,
+    pub suggested_tokens: usize,
+}
+
+/// Result returned after approving and writing an instruction/rule fix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstructionFixApplyResult {
+    pub path: String,
+    pub backup_path: Option<String>,
+    pub bytes_written: usize,
+    pub tokens: usize,
+}
+
+/// Complete workspace health and cleanup audit report.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupAuditReport {
+    pub total_issues: usize,
+    pub broken_symlinks: Vec<BrokenSymlinkIssue>,
+    pub duplicate_skills: Vec<DuplicateSkillIssue>,
+    pub stale_plugin_caches: Vec<StalePluginCacheItem>,
+    pub stale_plugin_cache_bytes: u64,
+    pub stale_git_excludes: Vec<StaleGitExcludeIssue>,
+    pub claude_synced_buckets: Vec<ClaudeSyncedBucketItem>,
+    pub instruction_hygiene: Vec<InstructionHygieneIssue>,
+    pub unmanaged_global_skill_ids: Vec<String>,
+    pub stray_global_skills: Vec<StraySkillIssue>,
+    pub stray_project_skills: Vec<StraySkillIssue>,
+}
+
+/// Summary returned after executing a cleanup mutation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupActionResult {
+    pub removed_count: usize,
+    pub reclaimed_bytes: u64,
+    pub warnings: Vec<String>,
 }

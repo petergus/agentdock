@@ -3,10 +3,21 @@
 :root {
   color-scheme: light dark;
 
-  --surface-content-light: #ffffff;
-  --surface-content-dark: #1c1c1e;
-  --surface-elevated-light: #f5f5f7;
-  --surface-elevated-dark: #252528;
+  /* macOS System Settings / Finder surface tiers */
+  --surface-canvas-light: #f2f2f7;
+  --surface-canvas-dark: #1b1b1e;
+  --surface-card-light: #ffffff;
+  --surface-card-dark: #26262a;
+  --surface-elevated-light: #ebebf0;
+  --surface-elevated-dark: #2c2c30;
+  --surface-toolbar-light: rgba(242, 242, 247, 0.82);
+  --surface-toolbar-dark: rgba(27, 27, 30, 0.80);
+  --surface-popover-light: rgba(250, 250, 252, 0.92);
+  --surface-popover-dark: rgba(38, 38, 42, 0.92);
+  --surface-control-light: #ffffff;
+  --surface-control-dark: rgba(255, 255, 255, 0.09);
+  --surface-field-light: rgba(0, 0, 0, 0.045);
+  --surface-field-dark: rgba(255, 255, 255, 0.065);
   --surface-subtle-light: rgba(0, 0, 0, 0.04);
   --surface-subtle-dark: rgba(255, 255, 255, 0.055);
   --surface-hover-light: rgba(0, 0, 0, 0.055);
@@ -19,10 +30,12 @@
   --text-tertiary-light: #76767d;
   --text-tertiary-dark: #86868b;
 
-  --hairline-light: rgba(0, 0, 0, 0.09);
-  --hairline-dark: rgba(255, 255, 255, 0.1);
+  --hairline-light: rgba(0, 0, 0, 0.08);
+  --hairline-dark: rgba(255, 255, 255, 0.09);
+  --hairline-inset-light: rgba(0, 0, 0, 0.065);
+  --hairline-inset-dark: rgba(255, 255, 255, 0.075);
 
-  --accent-light: #0066cc;
+  --accent-light: #007aff;
   --accent-dark: #0a84ff;
   --accent-text-light: #ffffff;
   --accent-text-dark: #ffffff;
@@ -34,46 +47,80 @@
   --status-red-light: #c92a2a;
   --status-red-dark: #ff453a;
 
+  --shadow-surface-light: 0 0.5px 1px rgba(0, 0, 0, 0.05), 0 0 0 0.5px rgba(0, 0, 0, 0.07);
+  --shadow-surface-dark: 0 1px 2px rgba(0, 0, 0, 0.28), inset 0 0.5px 0 rgba(255, 255, 255, 0.06), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  --shadow-control-light: 0 0.5px 1px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.09);
+  --shadow-control-dark: 0 0.5px 1px rgba(0, 0, 0, 0.32), inset 0 0.5px 0 rgba(255, 255, 255, 0.12), 0 0 0 0.5px rgba(255, 255, 255, 0.09);
+  --shadow-sheet-light: 0 24px 60px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+  --shadow-sheet-dark: 0 28px 68px rgba(0, 0, 0, 0.62), inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+
   /* Fallback assignments before light-dark() override */
-  --bg-content: var(--surface-content-light);
+  --bg-canvas: var(--surface-canvas-light);
+  --bg-surface: var(--surface-card-light);
+  --bg-content: var(--bg-surface);
   --bg-elevated: var(--surface-elevated-light);
+  --bg-toolbar: var(--surface-toolbar-light);
+  --bg-popover: var(--surface-popover-light);
+  --bg-control: var(--surface-control-light);
+  --bg-field: var(--surface-field-light);
   --bg-subtle: var(--surface-subtle-light);
   --bg-hover: var(--surface-hover-light);
   --text-primary: var(--text-primary-light);
   --text-secondary: var(--text-secondary-light);
   --text-tertiary: var(--text-tertiary-light);
   --hairline: var(--hairline-light);
+  --hairline-inset: var(--hairline-inset-light);
   --accent: var(--accent-light);
   --accent-text: var(--accent-text-light);
   --status-green: var(--status-green-light);
   --status-amber: var(--status-amber-light);
   --status-red: var(--status-red-light);
+  --surface-shadow: var(--shadow-surface-light);
+  --control-shadow: var(--shadow-control-light);
+  --sheet-shadow: var(--shadow-sheet-light);
 
   @media (prefers-color-scheme: dark) {
-    --bg-content: var(--surface-content-dark);
+    --bg-canvas: var(--surface-canvas-dark);
+    --bg-surface: var(--surface-card-dark);
+    --bg-content: var(--bg-surface);
     --bg-elevated: var(--surface-elevated-dark);
+    --bg-toolbar: var(--surface-toolbar-dark);
+    --bg-popover: var(--surface-popover-dark);
+    --bg-control: var(--surface-control-dark);
+    --bg-field: var(--surface-field-dark);
     --bg-subtle: var(--surface-subtle-dark);
     --bg-hover: var(--surface-hover-dark);
     --text-primary: var(--text-primary-dark);
     --text-secondary: var(--text-secondary-dark);
     --text-tertiary: var(--text-tertiary-dark);
     --hairline: var(--hairline-dark);
+    --hairline-inset: var(--hairline-inset-dark);
     --accent: var(--accent-dark);
     --accent-text: var(--accent-text-dark);
     --status-green: var(--status-green-dark);
     --status-amber: var(--status-amber-dark);
     --status-red: var(--status-red-dark);
+    --surface-shadow: var(--shadow-surface-dark);
+    --control-shadow: var(--shadow-control-dark);
+    --sheet-shadow: var(--shadow-sheet-dark);
   }
 
   @supports (color: light-dark(white, black)) {
-    --bg-content: light-dark(var(--surface-content-light), var(--surface-content-dark));
+    --bg-canvas: light-dark(var(--surface-canvas-light), var(--surface-canvas-dark));
+    --bg-surface: light-dark(var(--surface-card-light), var(--surface-card-dark));
+    --bg-content: var(--bg-surface);
     --bg-elevated: light-dark(var(--surface-elevated-light), var(--surface-elevated-dark));
+    --bg-toolbar: light-dark(var(--surface-toolbar-light), var(--surface-toolbar-dark));
+    --bg-popover: light-dark(var(--surface-popover-light), var(--surface-popover-dark));
+    --bg-control: light-dark(var(--surface-control-light), var(--surface-control-dark));
+    --bg-field: light-dark(var(--surface-field-light), var(--surface-field-dark));
     --bg-subtle: light-dark(var(--surface-subtle-light), var(--surface-subtle-dark));
     --bg-hover: light-dark(var(--surface-hover-light), var(--surface-hover-dark));
     --text-primary: light-dark(var(--text-primary-light), var(--text-primary-dark));
     --text-secondary: light-dark(var(--text-secondary-light), var(--text-secondary-dark));
     --text-tertiary: light-dark(var(--text-tertiary-light), var(--text-tertiary-dark));
     --hairline: light-dark(var(--hairline-light), var(--hairline-dark));
+    --hairline-inset: light-dark(var(--hairline-inset-light), var(--hairline-inset-dark));
     --accent: light-dark(var(--accent-light), var(--accent-dark));
     --accent-text: light-dark(var(--accent-text-light), var(--accent-text-dark));
     --status-green: light-dark(var(--status-green-light), var(--status-green-dark));
@@ -97,7 +144,8 @@ body,
   line-height: 1.45;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
-  overflow-x: clip;
+  overflow: hidden;
+  overscroll-behavior: none;
   user-select: none;
 }
 
@@ -132,10 +180,114 @@ textarea {
   outline-offset: 2px;
 }
 
+/* Focus-aware native macOS sidebar selection */
+html:not([data-window-focused="false"]) .mac-sidebar-selected {
+  background-color: var(--accent);
+  color: #ffffff;
+}
+
+html:not([data-window-focused="false"]) .mac-sidebar-selected .mac-sidebar-selected-muted {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+html:not([data-window-focused="false"]) .mac-sidebar-selected .mac-sidebar-selected-icon {
+  color: #ffffff;
+}
+
+html[data-window-focused="false"] .mac-sidebar-selected {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Shared macOS surface & control primitives */
+.mac-group {
+  border-radius: 10px;
+  background-color: var(--bg-surface);
+  box-shadow: var(--surface-shadow);
+}
+
+.mac-row-divider {
+  position: relative;
+}
+
+.mac-row-divider::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 14px;
+  height: 1px;
+  background-color: var(--hairline-inset);
+}
+
+.mac-btn {
+  border-radius: 6px;
+  background-color: var(--bg-control);
+  color: var(--text-primary);
+  box-shadow: var(--control-shadow);
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 120ms ease, background-color 120ms ease;
+}
+
+.mac-btn:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.mac-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.mac-btn-primary {
+  border-radius: 6px;
+  background-color: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 0.5px 0 rgba(255, 255, 255, 0.22);
+  transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), filter 120ms ease, opacity 120ms ease;
+}
+
+.mac-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.mac-btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.mac-input {
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.06);
+}
+
+.mac-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.mac-sheet {
+  border-radius: 14px;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  box-shadow: var(--sheet-shadow);
+}
+
+@keyframes mac-sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 /* Modal dialog scroll containment per modern-web-guidance */
 dialog[open] {
   display: flex;
   flex-direction: column;
+  animation: mac-sheet-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 dialog:modal {
@@ -145,8 +297,30 @@ dialog:modal {
 dialog::backdrop {
   overflow: hidden;
   overscroll-behavior: contain;
-  background: rgba(0, 0, 0, 0.36);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(3px);
+}
+
+/* Subtle macOS overlay-style scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-tertiary) 32%, transparent);
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-tertiary) 52%, transparent);
+  background-clip: content-box;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -159,11 +333,25 @@ dialog::backdrop {
   }
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --bg-toolbar: var(--bg-canvas);
+    --bg-popover: var(--bg-surface);
+  }
+
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl {
+    backdrop-filter: none !important;
+  }
+}
+
 /* Increased contrast support */
 @media (prefers-contrast: more) {
   :root {
     --hairline-light: rgba(0, 0, 0, 0.25);
     --hairline-dark: rgba(255, 255, 255, 0.28);
+    --hairline-inset-light: rgba(0, 0, 0, 0.22);
+    --hairline-inset-dark: rgba(255, 255, 255, 0.24);
     --text-secondary-light: #3d3d42;
     --text-secondary-dark: #d1d1d6;
   }

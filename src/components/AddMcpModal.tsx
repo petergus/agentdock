@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { McpServerDraft, McpTransport, ToggleScope } from '@/types';
 import { api } from '@/lib/api';
+import { MacSelect } from '@/components/ui/MacSelect';
+import { MacSwitch } from '@/components/ui/MacSwitch';
 
 interface AddMcpModalProps {
   open: boolean;
@@ -150,12 +152,12 @@ export function AddMcpModal({
         }
         pressedOutsideRef.current = false;
       }}
-      className="m-auto w-[540px] max-w-[calc(100vw-48px)] overflow-hidden rounded-[12px] border border-[var(--hairline)] bg-[var(--bg-content)] p-0 text-[var(--text-primary)] shadow-[0_20px_50px_rgba(0,0,0,0.28)]"
+      className="mac-sheet m-auto w-[540px] max-w-[calc(100vw-48px)] overflow-hidden p-0"
     >
       <form onSubmit={handleSubmit} className="flex flex-col">
-        <div className="flex items-center justify-between border-b border-[var(--hairline)] px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-[var(--hairline)] bg-[var(--bg-toolbar)] px-5 py-3.5 backdrop-blur-xl">
           <div>
-            <h2 id="add-mcp-modal-title" className="text-[15px] font-semibold">
+            <h2 id="add-mcp-modal-title" className="text-[14px] font-semibold">
               Add MCP Server
             </h2>
             <p className="text-[12px] text-[var(--text-secondary)]">
@@ -179,147 +181,149 @@ export function AddMcpModal({
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-            <div className="space-y-1.5 sm:col-span-2">
-              <label
-                htmlFor="mcp-name-input"
-                className="block text-[12.5px] font-medium"
-              >
-                Server Name
-              </label>
-              <input
-                id="mcp-name-input"
-                type="text"
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="context7"
-                className="mono-path h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12.5px]"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label
-                htmlFor="mcp-transport-select"
-                className="block text-[12.5px] font-medium"
-              >
-                Transport
-              </label>
-              <select
-                id="mcp-transport-select"
-                value={transport}
-                onChange={(e) =>
-                  setTransport(e.target.value as Exclude<McpTransport, 'unknown'>)
-                }
-                className="h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12.5px]"
-              >
-                <option value="stdio">Stdio</option>
-                <option value="http">HTTP</option>
-                <option value="sse">SSE</option>
-              </select>
-            </div>
-          </div>
-
-          {transport === 'stdio' ? (
+          <div className="mac-group space-y-3.5 p-3.5">
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="mcp-command-input"
-                  className="block text-[12.5px] font-medium"
-                >
-                  Command
-                </label>
-                <input
-                  id="mcp-command-input"
-                  type="text"
-                  value={command}
-                  onChange={(e) => setCommand(e.target.value)}
-                  placeholder="npx"
-                  className="mono-path h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px]"
-                />
-              </div>
-
               <div className="space-y-1.5 sm:col-span-2">
                 <label
-                  htmlFor="mcp-args-input"
-                  className="block text-[12.5px] font-medium"
+                  htmlFor="mcp-name-input"
+                  className="block text-[12px] font-medium text-[var(--text-secondary)]"
                 >
-                  Arguments (space-separated)
+                  Server Name
                 </label>
                 <input
-                  id="mcp-args-input"
+                  id="mcp-name-input"
                   type="text"
-                  value={argsText}
-                  onChange={(e) => setArgsText(e.target.value)}
-                  placeholder="-y @upstash/context7-mcp"
-                  className="mono-path h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px]"
+                  autoFocus
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="context7"
+                  className="mac-input mono-path h-8 w-full px-2.5 text-[12.5px]"
                 />
               </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="mcp-transport-select"
+                  className="block text-[12px] font-medium text-[var(--text-secondary)]"
+                >
+                  Transport
+                </label>
+                <MacSelect
+                  id="mcp-transport-select"
+                  value={transport}
+                  onChange={(e) =>
+                    setTransport(e.target.value as Exclude<McpTransport, 'unknown'>)
+                  }
+                  className="w-full"
+                >
+                  <option value="stdio">Stdio</option>
+                  <option value="http">HTTP</option>
+                  <option value="sse">SSE</option>
+                </MacSelect>
+              </div>
             </div>
-          ) : (
+
+            {transport === 'stdio' ? (
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="mcp-command-input"
+                    className="block text-[12px] font-medium text-[var(--text-secondary)]"
+                  >
+                    Command
+                  </label>
+                  <input
+                    id="mcp-command-input"
+                    type="text"
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    placeholder="npx"
+                    className="mac-input mono-path h-8 w-full px-2.5 text-[12px]"
+                  />
+                </div>
+
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label
+                    htmlFor="mcp-args-input"
+                    className="block text-[12px] font-medium text-[var(--text-secondary)]"
+                  >
+                    Arguments (space-separated)
+                  </label>
+                  <input
+                    id="mcp-args-input"
+                    type="text"
+                    value={argsText}
+                    onChange={(e) => setArgsText(e.target.value)}
+                    placeholder="-y @upstash/context7-mcp"
+                    className="mac-input mono-path h-8 w-full px-2.5 text-[12px]"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="mcp-url-input"
+                  className="block text-[12px] font-medium text-[var(--text-secondary)]"
+                >
+                  Endpoint URL
+                </label>
+                <input
+                  id="mcp-url-input"
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://mcp.example.com/mcp"
+                  className="mac-input mono-path h-8 w-full px-2.5 text-[12px]"
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label
-                htmlFor="mcp-url-input"
-                className="block text-[12.5px] font-medium"
+                htmlFor="mcp-env-input"
+                className="block text-[12px] font-medium text-[var(--text-secondary)]"
               >
-                Endpoint URL
+                {transport === 'stdio'
+                  ? 'Environment Variables (optional, KEY=VALUE per line)'
+                  : 'HTTP Headers (optional, KEY=VALUE per line)'}
               </label>
-              <input
-                id="mcp-url-input"
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://mcp.example.com/mcp"
-                className="mono-path h-8 w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] px-2.5 text-[12px]"
+              <textarea
+                id="mcp-env-input"
+                rows={3}
+                value={envText}
+                onChange={(e) => setEnvText(e.target.value)}
+                placeholder={
+                  transport === 'stdio'
+                    ? 'API_KEY=${MY_API_KEY}'
+                    : 'Authorization=Bearer ${TOKEN}'
+                }
+                className="mac-input mono-path w-full p-2.5 text-[12px]"
               />
             </div>
-          )}
-
-          <div className="space-y-1.5">
-            <label
-              htmlFor="mcp-env-input"
-              className="block text-[12.5px] font-medium"
-            >
-              {transport === 'stdio'
-                ? 'Environment Variables (optional, KEY=VALUE per line)'
-                : 'HTTP Headers (optional, KEY=VALUE per line)'}
-            </label>
-            <textarea
-              id="mcp-env-input"
-              rows={3}
-              value={envText}
-              onChange={(e) => setEnvText(e.target.value)}
-              placeholder={
-                transport === 'stdio'
-                  ? 'API_KEY=${MY_API_KEY}'
-                  : 'Authorization=Bearer ${TOKEN}'
-              }
-              className="mono-path w-full rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-elevated)] p-2.5 text-[12px]"
-            />
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2 text-[12.5px]">
-            <input
-              type="checkbox"
+          <div className="mac-group flex items-center justify-between px-3.5 py-2.5 text-[12.5px]">
+            <span className="font-medium">Enable immediately in {scopeLabel}</span>
+            <MacSwitch
               checked={enableImmediately}
-              onChange={(e) => setEnableImmediately(e.target.checked)}
+              label={`Enable immediately in ${scopeLabel}`}
+              onChange={setEnableImmediately}
             />
-            <span>Enable immediately in {scopeLabel}</span>
-          </label>
+          </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--hairline)] bg-[var(--bg-elevated)] px-5 py-3">
+        <div className="flex items-center justify-end gap-2.5 border-t border-[var(--hairline)] bg-[var(--bg-toolbar)] px-5 py-3 backdrop-blur-xl">
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
-            className="h-8 rounded-[6px] border border-[var(--hairline)] bg-[var(--bg-content)] px-3.5 text-[12.5px] font-medium hover:bg-[var(--bg-hover)]"
+            className="mac-btn h-8 px-3.5 text-[12.5px] font-medium"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="h-8 rounded-[6px] bg-[var(--accent)] px-4 text-[12.5px] font-medium text-[var(--accent-text)] hover:opacity-90 disabled:opacity-60"
+            className="mac-btn-primary h-8 px-4 text-[12.5px] font-medium disabled:opacity-60"
           >
             {saving ? 'Saving…' : 'Add MCP Server'}
           </button>
